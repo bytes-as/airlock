@@ -161,10 +161,22 @@ func (q *Queue) Enqueue(ctx context.Context, j *job.Job) error {
 		return err
 	}
 
-	return q.db.Update(func(tx *bolt.Tx) error {
+	// Enqueue reports back through j: the caller (and therefore the API
+	// response) must see the state that was actually stored, not the pending
+	// state it arrived in. Assigned only after the transaction commits, so a
+	// failed enqueue leaves the caller's job untouched.
+	var stored *job.Job
+	err := q.db.Update(func(tx *bolt.Tx) error {
 		jobs := tx.Bucket(bucketJobs)
 		if existing := jobs.Get([]byte(j.ID)); existing != nil {
-			return nil // Already present. Not an error, and not a duplicate.
+			// Already present. Not an error and not a duplicate - hand back
+			// what is on record so a retrying client sees the true state.
+			found, err := decodeJob(existing)
+			if err != nil {
+				return err
+			}
+			stored = found
+			return nil
 		}
 
 		ready := tx.Bucket(bucketReady)
@@ -191,8 +203,19 @@ func (q *Queue) Enqueue(ctx context.Context, j *job.Job) error {
 		if err := ready.Put(key, []byte(queued.ID)); err != nil {
 			return err
 		}
-		return tx.Bucket(bucketIndex).Put([]byte(queued.ID), key)
+		if err := tx.Bucket(bucketIndex).Put([]byte(queued.ID), key); err != nil {
+			return err
+		}
+		stored = &queued
+		return nil
 	})
+	if err != nil {
+		return err
+	}
+	if stored != nil {
+		*j = *stored
+	}
+	return nil
 }
 
 // Claim leases the highest-priority ready job to a worker.

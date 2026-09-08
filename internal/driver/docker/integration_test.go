@@ -443,8 +443,12 @@ func TestIntegrationReadOnlyRootFilesystem(t *testing.T) {
 	defer cancel()
 
 	// The image must be read-only; only the granted tmpfs mounts are writable.
+	// Markers must not be substrings of one another: contains() matches on
+	// substrings, so a plain "WRITABLE" marker is also matched by
+	// "ARTIFACTS_WRITABLE" and the root-filesystem assertion fires on a
+	// correctly read-only container.
 	spec := specFor([]string{"sh", "-c",
-		"touch /usr/local/should-fail 2>/dev/null && echo WRITABLE || echo READONLY; " +
+		"touch /usr/local/should-fail 2>/dev/null && echo ROOT_WRITABLE || echo ROOT_READONLY; " +
 			"touch /artifacts/ok && echo ARTIFACTS_WRITABLE"}, time.Minute)
 
 	env, err := d.Create(ctx, spec)
@@ -465,7 +469,7 @@ func TestIntegrationReadOnlyRootFilesystem(t *testing.T) {
 		output = append(output, line.Text)
 	}
 
-	if contains(output, "WRITABLE") {
+	if contains(output, "ROOT_WRITABLE") {
 		t.Errorf("root filesystem was writable: %v", output)
 	}
 	if !contains(output, "ARTIFACTS_WRITABLE") {

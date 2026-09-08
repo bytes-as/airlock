@@ -21,12 +21,18 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go-v2/service/ecs"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/bytes-as/ephemera/internal/admission"
 	"github.com/bytes-as/ephemera/internal/api"
 	"github.com/bytes-as/ephemera/internal/artifact"
 	"github.com/bytes-as/ephemera/internal/driver"
 	"github.com/bytes-as/ephemera/internal/driver/docker"
 	"github.com/bytes-as/ephemera/internal/driver/process"
+
+	"github.com/bytes-as/ephemera/internal/driver/fargate"
 	"github.com/bytes-as/ephemera/internal/logstream"
 	"github.com/bytes-as/ephemera/internal/queue/embedded"
 	"github.com/bytes-as/ephemera/internal/reaper"
@@ -52,6 +58,14 @@ type options struct {
 	envPrefix              string
 	dockerHost             string
 	dockerNetwork          string
+	ecsCluster             string
+	jobTaskDefinition      string
+	jobContainerName       string
+	subnets                string
+	securityGroups         string
+	assignPublicIP         bool
+	artifactBucket         string
+	jobLogGroup            string
 	egressProxy            string
 	pullPolicy             string
 	submitsPerSecond       float64
@@ -84,7 +98,7 @@ func parseFlags() options {
 
 	flag.StringVar(&o.addr, "addr", envOr("EPHEMERA_ADDR", ":8080"), "address for the HTTP API")
 	flag.StringVar(&o.dataDir, "data-dir", envOr("EPHEMERA_DATA_DIR", "./data"), "directory for the queue, environments and artifacts")
-	flag.StringVar(&o.driverName, "driver", envOr("EPHEMERA_DRIVER", "process"), "compute driver: process or docker")
+	flag.StringVar(&o.driverName, "driver", envOr("EPHEMERA_DRIVER", "process"), "compute driver: process, docker or fargate")
 	flag.IntVar(&o.workers, "workers", envIntOr("EPHEMERA_WORKERS", 8), "jobs that may run simultaneously")
 	flag.IntVar(&o.queueDepth, "queue-depth", envIntOr("EPHEMERA_QUEUE_DEPTH", 1000), "maximum queued jobs before submissions are refused")
 	flag.StringVar(&o.logFormat, "log-format", envOr("EPHEMERA_LOG_FORMAT", "text"), "log format: text or json")
@@ -98,6 +112,18 @@ func parseFlags() options {
 	flag.DurationVar(&o.deadline, "default-deadline", envDurationOr("EPHEMERA_DEFAULT_DEADLINE", 5*time.Minute), "deadline for jobs that request none")
 	flag.DurationVar(&o.maxDeadline, "max-deadline", envDurationOr("EPHEMERA_MAX_DEADLINE", 30*time.Minute), "largest deadline a caller may request")
 	flag.StringVar(&o.dockerHost, "docker-host", os.Getenv("DOCKER_HOST"), "docker daemon address (default: DOCKER_HOST or the platform socket)")
+
+	// --- fargate driver. Every one of these is a Terraform output; the runbook
+	// maps them one to one, and the driver refuses to start without them
+	// rather than failing later on the first job.
+	flag.StringVar(&o.ecsCluster, "ecs-cluster", os.Getenv("EPHEMERA_ECS_CLUSTER"), "ECS cluster for the fargate driver")
+	flag.StringVar(&o.jobTaskDefinition, "job-task-definition", os.Getenv("EPHEMERA_JOB_TASK_DEFINITION"), "ECS task definition family for job tasks")
+	flag.StringVar(&o.jobContainerName, "job-container-name", envOr("EPHEMERA_JOB_CONTAINER_NAME", "agent"), "container name inside the job task definition")
+	flag.StringVar(&o.subnets, "subnets", os.Getenv("EPHEMERA_SUBNETS"), "comma-separated subnet IDs for job tasks")
+	flag.StringVar(&o.securityGroups, "security-groups", envOr("EPHEMERA_SECURITY_GROUP", os.Getenv("EPHEMERA_SECURITY_GROUPS")), "comma-separated security group IDs for job tasks")
+	flag.BoolVar(&o.assignPublicIP, "assign-public-ip", os.Getenv("EPHEMERA_ASSIGN_PUBLIC_IP") == "1", "give job tasks a public IP (only for public subnets)")
+	flag.StringVar(&o.artifactBucket, "artifact-bucket", os.Getenv("EPHEMERA_ARTIFACT_BUCKET"), "S3 bucket agents upload artifacts to")
+	flag.StringVar(&o.jobLogGroup, "job-log-group", os.Getenv("EPHEMERA_JOB_LOG_GROUP"), "CloudWatch Logs group the job task definition writes to")
 	flag.StringVar(&o.dockerNetwork, "docker-network", envOr("EPHEMERA_DOCKER_NETWORK", ""), "internal docker network for job containers; required for proxied egress")
 	flag.StringVar(&o.egressProxy, "egress-proxy", envOr("EPHEMERA_EGRESS_PROXY", ""), "proxy URL injected into job containers on an internal network")
 	flag.StringVar(&o.pullPolicy, "pull-policy", envOr("EPHEMERA_PULL_POLICY", "if-missing"), "image pull policy: always, if-missing or never")
@@ -333,6 +359,57 @@ func run(opts options, log *slog.Logger) error {
 }
 
 // buildDriver selects the compute driver.
+// buildFargateDriver assembles the AWS clients the fargate driver needs.
+//
+// Credentials come from the default chain, which on ECS means the task role -
+// no keys in configuration, and nothing to leak. Region likewise comes from the
+// environment AWS itself sets. The driver validates its own configuration, so a
+// missing cluster or bucket is refused here at startup with a message naming
+// the field, rather than surfacing as a mysterious failure on the first job.
+func buildFargateDriver(opts options) (driver.Driver, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	awsCfg, err := config.LoadDefaultConfig(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("load AWS configuration: %w", err)
+	}
+	if awsCfg.Region == "" {
+		return nil, errors.New("no AWS region configured: set AWS_REGION")
+	}
+
+	cfg := fargate.DefaultConfig()
+	cfg.Cluster = opts.ecsCluster
+	cfg.TaskDefinition = opts.jobTaskDefinition
+	cfg.ContainerName = opts.jobContainerName
+	cfg.Subnets = splitList(opts.subnets)
+	cfg.SecurityGroups = splitList(opts.securityGroups)
+	cfg.AssignPublicIP = opts.assignPublicIP
+	cfg.ArtifactBucket = opts.artifactBucket
+	cfg.LogGroup = opts.jobLogGroup
+	cfg.UploadURLTTL = opts.maxLifetime + 30*time.Minute
+
+	s3Client := s3.NewFromConfig(awsCfg)
+	return fargate.New(
+		cfg,
+		ecs.NewFromConfig(awsCfg),
+		cloudwatchlogs.NewFromConfig(awsCfg),
+		fargate.NewS3Store(s3Client, cfg.ArtifactBucket),
+	)
+}
+
+// splitList parses a comma-separated flag, ignoring blanks so a trailing comma
+// or an empty Terraform output does not become an empty-string subnet ID.
+func splitList(v string) []string {
+	var out []string
+	for _, part := range strings.Split(v, ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
 func buildDriver(opts options, dataDir string) (driver.Driver, error) {
 	switch strings.ToLower(opts.driverName) {
 	case "process":
@@ -344,10 +421,16 @@ func buildDriver(opts options, dataDir string) (driver.Driver, error) {
 		cfg.Network = opts.dockerNetwork
 		cfg.ProxyURL = opts.egressProxy
 		cfg.PullPolicy = opts.pullPolicy
+		// Keep artifacts under the data directory rather than the OS temp dir,
+		// so everything this daemon writes has one root to inspect and clean.
+		cfg.ArtifactRoot = filepath.Join(dataDir, "environments")
 		return docker.New(cfg)
 
+	case "fargate":
+		return buildFargateDriver(opts)
+
 	default:
-		return nil, fmt.Errorf("unknown driver %q (available: process, docker)", opts.driverName)
+		return nil, fmt.Errorf("unknown driver %q (available: process, docker, fargate)", opts.driverName)
 	}
 }
 

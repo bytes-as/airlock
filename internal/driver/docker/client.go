@@ -26,7 +26,13 @@ import (
 // APIVersion is pinned rather than negotiated. An unpinned client silently
 // changes behaviour when the daemon is upgraded; a pinned one fails loudly if
 // the daemon is too old, which is the failure we would rather have.
-const APIVersion = "v1.43"
+//
+// v1.44 is a floor, not a preference. Docker Engine 29 rejects any request
+// below v1.44 with a 400 before the handler runs, so the previous v1.43 pin
+// could not reach a current daemon at all - every integration test skipped
+// with "daemon not available" against a daemon that was in fact running.
+// v1.44 ships in Engine 25.0 (January 2024), the oldest daemon worth support.
+const APIVersion = "v1.44"
 
 // Client is a minimal Docker Engine API client.
 type Client struct {
@@ -133,10 +139,18 @@ type HostConfig struct {
 	// ReadonlyRootfs makes the image read-only; the agent writes only to the
 	// tmpfs and volumes we grant it.
 	ReadonlyRootfs bool `json:"ReadonlyRootfs,omitempty"`
-	// Tmpfs are in-memory writable mounts. Using tmpfs rather than a host bind
-	// means the job's filesystem vanishes with the container by construction,
-	// which is a stronger guarantee than remembering to delete a directory.
+	// Tmpfs are in-memory writable mounts. Scratch space uses tmpfs so the
+	// job's filesystem vanishes with the container by construction, which is a
+	// stronger guarantee than remembering to delete a directory.
 	Tmpfs map[string]string `json:"Tmpfs,omitempty"`
+	// Binds are "host-path:container-path:mode" mounts.
+	//
+	// The artifact directory has to be a bind rather than a tmpfs: a tmpfs is
+	// unmounted the moment the container exits, so anything written there is
+	// gone before Collect can read it. Artifacts must outlive the container
+	// that produced them - especially when it crashed, which is exactly when
+	// its output is most worth having.
+	Binds []string `json:"Binds,omitempty"`
 	// CapDrop removes Linux capabilities. Dropping ALL and adding nothing back
 	// is the right default for code we did not write.
 	CapDrop []string `json:"CapDrop,omitempty"`
@@ -192,6 +206,24 @@ func (c *Client) ContainerInspect(ctx context.Context, id string) (ContainerStat
 		return ContainerState{}, err
 	}
 	return inspect.State, nil
+}
+
+// ContainerLabels returns the labels the container was created with.
+//
+// Separate from ContainerInspect because the caller wants Config.Labels rather
+// than State, and because these labels are how the driver recovers facts about
+// an environment it did not create - the artifact directory of a job that
+// outlived the control-plane process that started it.
+func (c *Client) ContainerLabels(ctx context.Context, id string) (map[string]string, error) {
+	var inspect struct {
+		Config struct {
+			Labels map[string]string `json:"Labels"`
+		} `json:"Config"`
+	}
+	if err := c.getJSON(ctx, "/containers/"+id+"/json", &inspect); err != nil {
+		return nil, err
+	}
+	return inspect.Config.Labels, nil
 }
 
 // ContainerWait blocks until the container exits and returns its exit code.

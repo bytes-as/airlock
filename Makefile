@@ -110,6 +110,25 @@ tf-validate:
 tf-fmt:
 	cd deploy/terraform && terraform fmt -recursive
 
+## aws-push: build and push arm64 images to this account's ECR (needs TAG=...)
+.PHONY: aws-push
+aws-push:
+	@if [ -z "$(TAG)" ]; then echo "usage: make aws-push TAG=v1"; exit 1; fi
+	@# --platform is not optional. The ECS task definitions declare ARM64
+	@# (Graviton, for the cost), so an image built on an amd64 laptop and pushed
+	@# without this flag starts and immediately dies with "exec format error" -
+	@# a failure that looks like a broken application and is not. Building it
+	@# here rather than in the runbook means nobody has to remember.
+	@set -eu; 	cd deploy/terraform; 	CP=$$(terraform output -raw control_plane_repository_url); 	AG=$$(terraform output -raw agent_repository_url); 	eval "$$(terraform output -raw ecr_login_command)"; 	cd ../..; 	echo "building linux/arm64 images tagged $(TAG)"; 	docker buildx build --platform linux/arm64 -t "$$CP:$(TAG)" --push .; 	docker buildx build --platform linux/arm64 -f Dockerfile.agent -t "$$AG:$(TAG)" --push .; 	echo; 	echo "pushed:"; 	echo "  control_plane_image=$$CP:$(TAG)"; 	echo "  agent_image=$$AG:$(TAG)"
+
+## aws-verify-images: check the pushed images are the architecture ECS expects
+.PHONY: aws-verify-images
+aws-verify-images:
+	@if [ -z "$(TAG)" ]; then echo "usage: make aws-verify-images TAG=v1"; exit 1; fi
+	@# Checked rather than assumed: an architecture mismatch is invisible until
+	@# a task starts, and its error message does not mention architecture.
+	@set -eu; 	cd deploy/terraform; 	CP=$$(terraform output -raw control_plane_repository_url); 	AG=$$(terraform output -raw agent_repository_url); 	cd ../..; 	for image in "$$CP:$(TAG)" "$$AG:$(TAG)"; do 	  arch=$$(docker manifest inspect "$$image" 2>/dev/null | grep -o '"architecture": *"[^"]*"' | head -1 | cut -d'"' -f4); 	  if [ "$$arch" = "arm64" ]; then echo "ok:     $$image is arm64"; 	  else echo "WRONG:  $$image is '$$arch', task definitions require arm64"; exit 1; fi; 	done
+
 ## clean: remove build output and local state
 .PHONY: clean
 clean:

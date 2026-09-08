@@ -1,0 +1,34 @@
+# Egress proxy for job containers.
+#
+# Built here rather than pulled from a public tinyproxy image for three reasons,
+# each of which cost us a broken `docker compose up` before this file existed:
+#
+#   1. Architecture. The image previously used publishes linux/amd64 only, so on
+#      an arm64 machine it runs under emulation - slower, and one more moving
+#      part between you and a working stack.
+#   2. Version. That image ships tinyproxy 1.11.0, which does not understand the
+#      `FilterType` directive our config depends on to read the filter file as
+#      fnmatch globs. The proxy refused to start with "Syntax error on line 40",
+#      which meant the egress control this project advertises was simply absent
+#      from the stack anyone actually runs. Alpine 3.19 carries 1.11.2, which
+#      supports it.
+#   3. Pinning. It was referenced as `:latest`, in a repo that pins everything
+#      else on the grounds that an unpinned dependency changes behaviour without
+#      a commit. The proxy is a security control; it is the last thing that
+#      should float.
+FROM alpine:3.19
+
+# --no-cache keeps the layer small; the version is pinned so a rebuild six
+# months from now produces the same proxy this was tested against.
+RUN apk add --no-cache tinyproxy=1.11.2-r0
+
+# tinyproxy drops to this user itself, per the User directive in the config.
+# Declared here so the directories it needs exist with the right owner.
+RUN mkdir -p /var/log/tinyproxy /var/run/tinyproxy \
+    && chown -R tinyproxy:tinyproxy /var/log/tinyproxy /var/run/tinyproxy
+
+EXPOSE 8888
+
+# -d keeps tinyproxy in the foreground, which is what a container supervisor
+# expects: a process that daemonises exits immediately and looks like a crash.
+ENTRYPOINT ["tinyproxy", "-d", "-c", "/etc/tinyproxy/tinyproxy.conf"]

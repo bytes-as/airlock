@@ -159,7 +159,10 @@ resource "aws_ecs_task_definition" "control_plane" {
         { name = "EPHEMERA_ECS_CLUSTER", value = aws_ecs_cluster.main.name },
         { name = "EPHEMERA_JOB_TASK_DEFINITION", value = aws_ecs_task_definition.job.family },
         { name = "EPHEMERA_ARTIFACT_BUCKET", value = aws_s3_bucket.artifacts.id },
-        { name = "EPHEMERA_QUEUE_URL", value = aws_sqs_queue.jobs.url },
+        # The log group the *job* task definition writes to. The control plane
+        # reads job output from here; without it jobs run correctly and stream
+        # nothing, which is a confusing way to fail.
+        { name = "EPHEMERA_JOB_LOG_GROUP", value = aws_cloudwatch_log_group.jobs.name },
         { name = "EPHEMERA_SUBNETS", value = join(",", aws_subnet.private[*].id) },
         { name = "EPHEMERA_SECURITY_GROUP", value = aws_security_group.job.id },
         { name = "EPHEMERA_MAX_ENV_LIFETIME", value = "${var.max_job_lifetime_minutes}m" },

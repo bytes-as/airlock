@@ -4,6 +4,10 @@ _private/
 # Go
 /bin/
 /dist/
+
+# Local runtime state: the queue, artifacts and per-job environment dirs.
+# Created by `make run` and by `docker compose up`, which bind-mounts it.
+/data/
 *.exe
 *.test
 *.out

@@ -1,13 +1,11 @@
 package docker
 
 import (
-	"archive/tar"
 	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"io"
-	"mime"
 	"os"
 	"path"
 	"path/filepath"
@@ -18,6 +16,7 @@ import (
 	"time"
 
 	"github.com/bytes-as/ephemera/internal/driver"
+	"github.com/bytes-as/ephemera/internal/driver/archive"
 	"github.com/bytes-as/ephemera/internal/job"
 )
 
@@ -29,6 +28,12 @@ const (
 	LabelTenant  = "ephemera.tenant"
 	LabelExpires = "ephemera.expires-at"
 	LabelCreated = "ephemera.created-at"
+	// LabelArtifactDir records the host directory bound at artifactMount.
+	//
+	// Written on the container so Collect and Destroy can find the artifacts of
+	// an environment this process did not create - after a control-plane
+	// restart the reaper still needs to clean the directory up.
+	LabelArtifactDir = "ephemera.artifact-dir"
 )
 
 // artifactMount is where agents write their outputs inside the container.
@@ -69,10 +74,18 @@ type Config struct {
 	// in one job taking down every other job on the host.
 	PidsLimit int64
 
-	// TmpfsSizeMiB is the size of the writable in-memory filesystem granted to
-	// each job. The root filesystem is read-only, so this is where the agent
-	// writes — and it vanishes with the container by construction.
+	// TmpfsSizeMiB is the size of the writable in-memory scratch filesystem
+	// granted to each job at /tmp. The root filesystem is read-only, so this is
+	// where the agent scribbles — and it vanishes with the container.
 	TmpfsSizeMiB int64
+
+	// ArtifactRoot is the host directory under which each job gets its own
+	// artifact directory, bind-mounted at /artifacts.
+	//
+	// It cannot be a tmpfs: tmpfs is unmounted when the container exits, so
+	// artifacts written there are destroyed before Collect can read them.
+	// Empty means a subdirectory of the OS temp directory.
+	ArtifactRoot string
 }
 
 // DefaultConfig returns settings suitable for running untrusted agents.
@@ -127,6 +140,18 @@ func New(cfg Config, opts ...Option) (*Driver, error) {
 		opt(d)
 	}
 
+	if d.cfg.ArtifactRoot == "" {
+		d.cfg.ArtifactRoot = filepath.Join(os.TempDir(), "ephemera-artifacts")
+	}
+	root, err := filepath.Abs(d.cfg.ArtifactRoot)
+	if err != nil {
+		return nil, fmt.Errorf("docker driver: artifact root: %w", err)
+	}
+	d.cfg.ArtifactRoot = root
+	if err := os.MkdirAll(root, 0o750); err != nil {
+		return nil, fmt.Errorf("docker driver: create artifact root: %w", err)
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if _, err := client.Ping(ctx); err != nil {
@@ -178,11 +203,26 @@ func (d *Driver) Create(ctx context.Context, spec driver.EnvSpec) (driver.Env, e
 		expires = now.Add(spec.Deadline)
 	}
 
+	name := "ephemera-" + sanitiseName(spec.JobID) + "-" + strconv.FormatInt(now.UnixNano()%1e6, 36)
+
+	// The artifact directory is created on the host before the container, and
+	// bound in below. 0o777 because the agent runs as an unprivileged uid that
+	// this process cannot chown to; the directory is per-job and removed by
+	// Destroy, so the exposure is one job's own output.
+	hostArtifacts := filepath.Join(d.cfg.ArtifactRoot, name)
+	if err := os.MkdirAll(hostArtifacts, 0o777); err != nil {
+		return driver.Env{}, fmt.Errorf("docker driver: create artifact dir: %w", err)
+	}
+	if err := os.Chmod(hostArtifacts, 0o777); err != nil {
+		return driver.Env{}, fmt.Errorf("docker driver: chmod artifact dir: %w", err)
+	}
+
 	labels := map[string]string{
-		LabelManaged: "true",
-		LabelJob:     spec.JobID,
-		LabelTenant:  spec.TenantID,
-		LabelCreated: now.UTC().Format(time.RFC3339),
+		LabelManaged:     "true",
+		LabelJob:         spec.JobID,
+		LabelTenant:      spec.TenantID,
+		LabelCreated:     now.UTC().Format(time.RFC3339),
+		LabelArtifactDir: hostArtifacts,
 	}
 	if !expires.IsZero() {
 		// The expiry is written on the container itself, so the reaper can
@@ -207,14 +247,14 @@ func (d *Driver) Create(ctx context.Context, spec driver.EnvSpec) (driver.Env, e
 			NanoCPUs:    nanoCPUs(spec.Resources.CPUMillis, d.cfg.DefaultCPUMillis),
 			PidsLimit:   d.cfg.PidsLimit,
 			NetworkMode: networkMode,
-			// The image is read-only and the agent writes to tmpfs. The job's
-			// filesystem then vanishes with the container by construction,
-			// which is a stronger guarantee than remembering to delete it.
+			// The image is read-only. Scratch space is tmpfs and vanishes with
+			// the container; the artifact directory is a host bind, because it
+			// has to outlive the container to be collectable at all.
 			ReadonlyRootfs: true,
 			Tmpfs: map[string]string{
-				artifactMount: fmt.Sprintf("rw,size=%dm,mode=1777", d.cfg.TmpfsSizeMiB),
-				"/tmp":        fmt.Sprintf("rw,size=%dm,mode=1777", d.cfg.TmpfsSizeMiB),
+				"/tmp": fmt.Sprintf("rw,size=%dm,mode=1777", d.cfg.TmpfsSizeMiB),
 			},
+			Binds:       []string{hostArtifacts + ":" + artifactMount + ":rw"},
 			CapDrop:     []string{"ALL"},
 			SecurityOpt: []string{"no-new-privileges"},
 			AutoRemove:  false,
@@ -224,9 +264,10 @@ func (d *Driver) Create(ctx context.Context, spec driver.EnvSpec) (driver.Env, e
 		cfg.NetworkDisabled = true
 	}
 
-	name := "ephemera-" + sanitiseName(spec.JobID) + "-" + strconv.FormatInt(now.UnixNano()%1e6, 36)
 	id, err := d.client.ContainerCreate(ctx, name, cfg)
 	if err != nil {
+		// No container means nothing will ever call Destroy for this directory.
+		os.RemoveAll(hostArtifacts)
 		return driver.Env{}, fmt.Errorf("docker driver: create container: %w", err)
 	}
 
@@ -578,148 +619,80 @@ func (d *Driver) List(ctx context.Context) ([]driver.Env, error) {
 	return envs, nil
 }
 
-// Collect extracts the container's artifact directory into dest.
+// Collect copies the environment's artifacts into dest.
+//
+// Artifacts are read from the host directory bound at artifactMount, not out of
+// the container. Copying from the container only works while it is running: the
+// mount is gone once it exits, and the interesting case - an agent that crashed
+// - is precisely the one where the container is no longer running.
 func (d *Driver) Collect(ctx context.Context, env driver.Env, dest string) ([]driver.Artifact, error) {
-	stream, err := d.client.CopyFromContainer(ctx, env.ID, artifactMount)
+	src, err := d.artifactDirFor(ctx, env)
 	if err != nil {
-		if IsNotFound(err) {
+		return nil, err
+	}
+	if src == "" {
+		return nil, nil // Environment is gone; nothing to collect is not a failure.
+	}
+	if _, err := os.Stat(src); err != nil {
+		if os.IsNotExist(err) {
 			return nil, nil // Nothing written is not a failure.
 		}
-		return nil, fmt.Errorf("docker driver: copy artifacts: %w", err)
+		return nil, fmt.Errorf("docker driver: stat artifact dir: %w", err)
 	}
-	defer stream.Close()
 
 	if err := os.MkdirAll(dest, 0o750); err != nil {
 		return nil, fmt.Errorf("docker driver: create artifact destination: %w", err)
 	}
-	return ExtractTar(ctx, stream, dest)
+	return archive.CollectDir(ctx, src, dest)
+}
+
+// artifactDirFor resolves the host artifact directory for an environment,
+// preferring the label on the container so that an environment created by a
+// previous control-plane process still resolves. Returns "" if the container is
+// gone and no directory can be inferred.
+func (d *Driver) artifactDirFor(ctx context.Context, env driver.Env) (string, error) {
+	labels, err := d.client.ContainerLabels(ctx, env.ID)
+	if err != nil {
+		if IsNotFound(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("docker driver: inspect for artifact dir: %w", err)
+	}
+	return labels[LabelArtifactDir], nil
 }
 
 // Destroy removes the container. Idempotent, and removing something already
 // gone is success — the reaper calls this speculatively.
 func (d *Driver) Destroy(ctx context.Context, env driver.Env) error {
-	if err := d.client.ContainerRemove(ctx, env.ID, true); err != nil {
-		if IsNotFound(err) {
-			return nil
-		}
+	// Resolve the directory before removing the container: the label is the
+	// only record of it, and it disappears with the container.
+	artifactDir, dirErr := d.artifactDirFor(ctx, env)
+
+	if err := d.client.ContainerRemove(ctx, env.ID, true); err != nil && !IsNotFound(err) {
 		return fmt.Errorf("docker driver: remove container: %w", err)
+	}
+
+	// A container removed without its artifact directory is a disk leak, which
+	// is the same class of bug as a leaked container - just slower to notice.
+	if dirErr == nil && artifactDir != "" {
+		if err := os.RemoveAll(artifactDir); err != nil {
+			return fmt.Errorf("docker driver: remove artifact dir: %w", err)
+		}
 	}
 	return nil
 }
 
 // ExtractTar unpacks a Docker archive stream into dest.
 //
-// Written as an exported pure function because it is where the security bugs
-// live. A tar stream from a container is untrusted input: entries can carry
-// absolute paths, "..", or symlinks pointing outside the destination, and a
-// naive extractor will happily write through all three. This one refuses.
+// The implementation lives in the archive package, shared with every other
+// driver: a tar stream out of a container is untrusted input, and that defence
+// should exist once rather than once per driver. Kept here as the name callers
+// and tests already use.
+//
+// Docker prefixes entries with the copied directory's name, so that prefix is
+// stripped to leave names relative to the artifact directory itself.
 func ExtractTar(ctx context.Context, r io.Reader, dest string) ([]driver.Artifact, error) {
-	absDest, err := filepath.Abs(dest)
-	if err != nil {
-		return nil, err
-	}
-
-	var artifacts []driver.Artifact
-	reader := tar.NewReader(r)
-
-	for {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		header, err := reader.Next()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			return nil, fmt.Errorf("docker driver: read archive: %w", err)
-		}
-
-		// Docker prefixes entries with the copied directory's name; strip it so
-		// artifact names are relative to the artifact directory itself.
-		name := strings.TrimPrefix(header.Name, path.Base(artifactMount)+"/")
-		name = strings.TrimPrefix(name, "./")
-		if name == "" || name == "." {
-			continue
-		}
-
-		switch header.Typeflag {
-		case tar.TypeDir:
-			continue // Directories are created as needed by their entries.
-
-		case tar.TypeSymlink, tar.TypeLink:
-			// Not followed, not recreated. A symlink in an artifact set has no
-			// legitimate use here and every illegitimate one: pointing it at
-			// /etc/passwd turns "collect the screenshots" into host file read.
-			continue
-
-		case tar.TypeReg:
-			// fall through
-
-		default:
-			continue // devices, fifos and the rest have no business here
-		}
-
-		target, err := safeJoin(absDest, name)
-		if err != nil {
-			// Refuse rather than skip quietly: a traversal attempt is a signal,
-			// not a formatting quirk.
-			return nil, fmt.Errorf("docker driver: archive entry %q: %w", header.Name, err)
-		}
-
-		if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
-			return nil, err
-		}
-		written, err := writeFile(target, reader, header.Size)
-		if err != nil {
-			return nil, fmt.Errorf("docker driver: extract %s: %w", name, err)
-		}
-
-		artifacts = append(artifacts, driver.Artifact{
-			Name:        filepath.ToSlash(name),
-			Path:        target,
-			Size:        written,
-			ContentType: contentTypeOf(name),
-		})
-	}
-
-	sort.Slice(artifacts, func(i, j int) bool { return artifacts[i].Name < artifacts[j].Name })
-	return artifacts, nil
-}
-
-// safeJoin resolves name inside root, refusing anything that escapes.
-func safeJoin(root, name string) (string, error) {
-	if filepath.IsAbs(name) || strings.HasPrefix(name, "/") || strings.HasPrefix(name, `\`) {
-		return "", errors.New("absolute paths are not permitted")
-	}
-	joined := filepath.Clean(filepath.Join(root, filepath.FromSlash(name)))
-	if joined != root && !strings.HasPrefix(joined, root+string(os.PathSeparator)) {
-		return "", errors.New("path escapes the destination directory")
-	}
-	return joined, nil
-}
-
-// writeFile copies exactly size bytes, refusing a header that lies about length.
-func writeFile(target string, r io.Reader, size int64) (int64, error) {
-	f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o640)
-	if err != nil {
-		return 0, err
-	}
-	defer f.Close()
-
-	// LimitReader bounds the copy by the declared size, so a stream that keeps
-	// producing bytes past its header cannot fill the disk.
-	written, err := io.Copy(f, io.LimitReader(r, size))
-	if err != nil {
-		return written, err
-	}
-	return written, nil
-}
-
-func contentTypeOf(name string) string {
-	if t := mime.TypeByExtension(path.Ext(name)); t != "" {
-		return t
-	}
-	return "application/octet-stream"
+	return archive.Extract(ctx, r, dest, path.Base(artifactMount)+"/")
 }
 
 // memoryBytes resolves the memory limit, always returning one.

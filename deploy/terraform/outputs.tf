@@ -54,9 +54,38 @@ output "max_job_lifetime_minutes" {
 output "verification_status" {
   description = "What has actually been verified about this configuration."
   value       = <<-EOT
-    This Terraform is statically validated (fmt, validate, tflint, checkov) in CI.
+    This Terraform is statically validated (fmt, validate, tflint) in CI.
+    Checkov reports 19 findings that are open by choice, not silenced; the README
+    lists them.
+
     It has NOT been applied to a real AWS account - the author had none available.
-    Expect to fix things on first apply. See docs/ARCHITECTURE.md for the full
-    list of what is verified versus what is written but unproven.
+    Neither has the fargate driver that runs against it ever executed: it is
+    unit tested against fakes only. Expect to fix things on first apply, and
+    read docs/RUNBOOK.md before you do - it says what to watch for and how to
+    tear everything down.
+
+    The local Docker path, by contrast, is fully verified end to end. If you
+    want to see the system work rather than deploy it, start there.
   EOT
+}
+
+# --- container registries ---
+#
+# The runbook's build-and-push step reads these. Printed as full repository URLs
+# because that is what `docker tag` and `docker push` want, and assembling one
+# by hand from an account ID and a region is a reliable source of typos.
+
+output "control_plane_repository_url" {
+  description = "ECR repository for the control plane image. Push here, then set control_plane_image to <url>:<tag>."
+  value       = aws_ecr_repository.control_plane.repository_url
+}
+
+output "agent_repository_url" {
+  description = "ECR repository for the agent image. Push here, then set agent_image to <url>:<tag>."
+  value       = aws_ecr_repository.agent.repository_url
+}
+
+output "ecr_login_command" {
+  description = "Copy-paste command that authenticates Docker to this account's ECR registry."
+  value       = "aws ecr get-login-password --region ${var.region} | docker login --username AWS --password-stdin ${split("/", aws_ecr_repository.control_plane.repository_url)[0]}"
 }

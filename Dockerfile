@@ -30,6 +30,10 @@ RUN CGO_ENABLED=0 go build \
         -ldflags "-s -w -X main.version=${VERSION}" \
         -o /out/ephemera ./cmd/ephemera
 
+# An empty, correctly-owned /data to seed the runtime image with. Built here
+# because the distroless runtime has no shell to mkdir with.
+RUN mkdir -p /data
+
 # --- runtime ---
 FROM gcr.io/distroless/static-debian12:nonroot
 
@@ -44,6 +48,16 @@ USER nonroot:nonroot
 
 # The data directory holds the queue, artifacts and process-driver
 # environments. Mount a volume here or everything is lost on restart.
+#
+# It must exist *in the image*, owned by the runtime user, before VOLUME is
+# declared. Docker seeds a fresh named volume from the image's contents at that
+# path - including ownership - but when the path does not exist it creates the
+# mountpoint root-owned instead. This container runs as uid 65532, so that left
+# the control plane unable to create its own queue file and crash-looping on
+# "permission denied", which is how `docker compose up` came to be broken.
+# 65532 is nonroot in the distroless base; numeric because --chown resolves
+# names against the *build* stage's passwd, not the runtime image's.
+COPY --from=build --chown=65532:65532 /data /data
 VOLUME ["/data"]
 ENV EPHEMERA_DATA_DIR=/data
 

@@ -28,7 +28,9 @@ services:
       - "${EPHEMERA_PORT:-8080}:8080"
     environment:
       EPHEMERA_ADDR: ":8080"
-      EPHEMERA_DATA_DIR: "/data"
+      # Mirrored host path - see the volumes section below for why this is not
+      # simply "/data".
+      EPHEMERA_DATA_DIR: "${PWD}/data"
       EPHEMERA_DRIVER: "docker"
       EPHEMERA_WORKERS: "${EPHEMERA_WORKERS:-8}"
       EPHEMERA_DOCKER_NETWORK: "ephemera_jobs"
@@ -53,7 +55,32 @@ services:
       # proxy that allows only the endpoints this driver actually calls.
       # See docs/SECURITY.md.
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ephemera-data:/data
+      # The data directory is bind-mounted at *the same path it has on the
+      # host*, which is deliberate and load-bearing.
+      #
+      # The control plane creates a directory per job and asks the daemon to
+      # bind-mount it into the job container. That bind source is resolved by
+      # the daemon on the host, not inside this container - so a named volume
+      # at /data would give the control plane a path the daemon cannot see, and
+      # every job would die with "mounts denied: path is not shared from the
+      # host". Mirroring the path makes the two views identical, so a path this
+      # container writes is a path the daemon can mount.
+      #
+      # It also means artifacts land in ./data on the host, where a reviewer can
+      # just look at them.
+      - ${PWD}/data:${PWD}/data
+    # The image runs as uid 65532, but the Docker socket is mode 0660 owned by
+    # root and a group. Without membership of that group the control plane
+    # cannot reach the daemon at all ("permission denied" on the socket) - and
+    # running the container as root instead would give away the one piece of
+    # hardening that matters most on the container holding the socket.
+    #
+    # 0 is correct for Docker Desktop (macOS and Windows), where the socket
+    # inside the VM is root:root. On Linux it is usually root:docker, so set
+    # the group explicitly:
+    #   EPHEMERA_DOCKER_GID=$(stat -c '%g' /var/run/docker.sock) docker compose up
+    group_add:
+      - "${EPHEMERA_DOCKER_GID:-0}"
     networks:
       - control
       # Also on the jobs network so it can reach containers it creates.
@@ -90,7 +117,13 @@ services:
   # were made routable the metadata endpoint stays blocked — defence in depth
   # rather than relying on the network mode alone.
   egress-proxy:
-    image: vimagick/tinyproxy:latest
+    # Built rather than pulled: the public image is amd64-only and ships a
+    # tinyproxy too old for the FilterType directive this config needs, which
+    # stopped the proxy starting at all. See Dockerfile.proxy.
+    build:
+      context: .
+      dockerfile: Dockerfile.proxy
+    image: ephemera/egress-proxy:${VERSION:-dev}
     volumes:
       - ./deploy/compose/tinyproxy.conf:/etc/tinyproxy/tinyproxy.conf:ro
       - ./deploy/compose/filter:/etc/tinyproxy/filter:ro
@@ -115,5 +148,5 @@ networks:
   egress:
     driver: bridge
 
-volumes:
-  ephemera-data:
+# No named volume: the data directory is a host bind mount (see control-plane
+# above), because the daemon has to be able to resolve the paths inside it.

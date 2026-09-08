@@ -38,6 +38,29 @@ import (
 
 var version = "dev"
 
+// Where this run writes its output, and where to upload it when the control
+// plane cannot read that directory itself. Package-level because every exit
+// path - including the signal handler - has to be able to flush artifacts, and
+// os.Exit does not run deferred functions.
+var (
+	artifactDir string
+	uploadURL   string
+)
+
+// finish uploads whatever the run produced, then exits with code.
+//
+// Every exit from this program goes through here. Calling os.Exit directly
+// would skip the upload, which on the Fargate path is the only way output ever
+// leaves the task - the exact bug this indirection exists to prevent.
+func finish(code int) {
+	if err := uploadArtifacts(artifactDir, uploadURL); err != nil {
+		// A failed upload must not turn a successful job into a failed one, but
+		// it must be visible: the logs are the only place it can surface.
+		errorf("artifact upload failed: %v", err)
+	}
+	os.Exit(code)
+}
+
 func main() {
 	var (
 		task      = flag.String("task", envOr("EPHEMERA_TASK", "search"), "task to perform")
@@ -63,12 +86,18 @@ func main() {
 	go func() {
 		<-signals
 		logf("received termination signal, stopping")
-		os.Exit(143) // 128 + SIGTERM, the conventional shell encoding
+		// Still upload: a job stopped by its deadline has usually produced
+		// something worth keeping, and this is the last chance to send it.
+		finish(143) // 128 + SIGTERM, the conventional shell encoding
 	}()
 
 	jobID := os.Getenv("EPHEMERA_JOB_ID")
 	tenant := os.Getenv("EPHEMERA_TENANT_ID")
-	artifactDir := os.Getenv("EPHEMERA_ARTIFACT_DIR")
+	artifactDir = os.Getenv("EPHEMERA_ARTIFACT_DIR")
+	// Set only by drivers whose environment the control plane cannot read
+	// directly, which today means Fargate. Empty on the docker and process
+	// drivers, where uploadArtifacts is a no-op.
+	uploadURL = os.Getenv("EPHEMERA_ARTIFACT_UPLOAD_URL")
 
 	logf("agent %s starting", version)
 	logf("job=%s tenant=%s task=%s", orDash(jobID), orDash(tenant), *task)
@@ -79,7 +108,7 @@ func main() {
 		logf("warning: EPHEMERA_ARTIFACT_DIR is not set; this run will produce no artifacts")
 	} else if err := os.MkdirAll(artifactDir, 0o750); err != nil {
 		errorf("cannot create artifact directory: %v", err)
-		os.Exit(1)
+		finish(1)
 	}
 
 	if *hang {
@@ -92,7 +121,7 @@ func main() {
 	for step := 1; step <= *steps; step++ {
 		if *failAt > 0 && step == *failAt {
 			errorf("step %d failed: could not reach the target page", step)
-			os.Exit(1)
+			finish(1)
 		}
 		logf("step %d/%d: %s", step, *steps, describeStep(step, *query))
 		time.Sleep(*stepDelay)
@@ -101,11 +130,12 @@ func main() {
 	if artifactDir != "" {
 		if err := writeArtifacts(artifactDir, *task, *query, *steps); err != nil {
 			errorf("could not write artifacts: %v", err)
-			os.Exit(1)
+			finish(1)
 		}
 	}
 
 	logf("task complete")
+	finish(0)
 }
 
 func describeStep(step int, query string) string {

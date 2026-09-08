@@ -105,6 +105,14 @@ data "aws_iam_policy_document" "control_plane" {
       "ecs:StopTask",
       "ecs:DescribeTasks",
       "ecs:ListTasks",
+      # Tagging on create is a separate permission from creating. Without it
+      # RunTask fails outright, because the driver always tags - and those tags
+      # are not decoration: they are how List finds tasks after a control-plane
+      # crash, and therefore how the reaper works at all.
+      "ecs:TagResource",
+      # The driver reads the job task definition to discover its real log
+      # configuration rather than assuming one. See the fargate driver.
+      "ecs:DescribeTaskDefinition",
     ]
     resources = [
       "${replace(aws_ecs_task_definition.job.arn, "/:\\d+$/", "")}:*",
@@ -151,23 +159,26 @@ data "aws_iam_policy_document" "control_plane" {
     ]
   }
 
-  statement {
-    sid    = "Queue"
-    effect = "Allow"
-    actions = [
-      "sqs:ReceiveMessage",
-      "sqs:SendMessage",
-      "sqs:DeleteMessage",
-      "sqs:GetQueueAttributes",
-      "sqs:ChangeMessageVisibility",
-    ]
-    resources = [aws_sqs_queue.jobs.arn]
-  }
+  # No SQS grant. The queue is embedded (see the scale ladder in the README):
+  # queue.Queue is a job *store* - priority claim, get, list, update - and SQS
+  # implements none of that, so it is provisioned for the scale step and not
+  # used yet. A permission granted for something nothing does is a permission
+  # that will still be there when something else finds a use for it.
 
   statement {
-    sid       = "Logs"
-    effect    = "Allow"
-    actions   = ["logs:CreateLogStream", "logs:PutLogEvents", "logs:DescribeLogStreams"]
+    sid    = "Logs"
+    effect = "Allow"
+    actions = [
+      "logs:CreateLogStream",
+      "logs:PutLogEvents",
+      "logs:DescribeLogStreams",
+      # Reading is the whole point on this side: the control plane streams job
+      # output to callers by polling GetLogEvents. Granting only the write
+      # actions - which is the easy mistake, because they are what the *task*
+      # needs - produces a system where jobs run correctly and no one can ever
+      # see inside them.
+      "logs:GetLogEvents",
+    ]
     resources = ["${aws_cloudwatch_log_group.jobs.arn}:*"]
   }
 }

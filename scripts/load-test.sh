@@ -28,6 +28,10 @@ AGENT_COMMAND="${AGENT_COMMAND:-$(pwd)/bin/ephemera-agent}"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
+# Expanded below as ${auth[@]+"${auth[@]}"} rather than "${auth[@]}".
+# macOS ships bash 3.2, where expanding an *empty* array under `set -u` is an
+# "unbound variable" error; bash 4.4+ (and so Linux CI) treats it as empty.
+# Without the guard this script dies on every macOS run with no token set.
 auth=()
 if [ -n "$TOKEN" ]; then
   auth=(-H "Authorization: Bearer $TOKEN")
@@ -49,7 +53,7 @@ started=$(date +%s)
 for i in $(seq 1 "$COUNT"); do
   (
     response=$(curl -s -o "$WORK/body.$i" -w '%{http_code}' -X POST "$SERVER/v1/jobs" \
-      "${auth[@]}" \
+      ${auth[@]+"${auth[@]}"} \
       -H 'Content-Type: application/json' \
       -d "{$spec,\"env\":{\"EPHEMERA_STEP_DELAY\":\"100ms\"},\"priority\":\"normal\"}")
     echo "$response" > "$WORK/status.$i"
@@ -96,7 +100,7 @@ echo "waiting for accepted jobs to finish..."
 
 deadline=$(( $(date +%s) + 300 ))
 while [ "$(date +%s)" -lt "$deadline" ]; do
-  stats=$(curl -s "${auth[@]}" "$SERVER/v1/stats")
+  stats=$(curl -s ${auth[@]+"${auth[@]}"} "$SERVER/v1/stats")
   ready=$(echo "$stats" | grep -o '"ready":[0-9]*' | head -1 | cut -d: -f2)
   claimed=$(echo "$stats" | grep -o '"claimed":[0-9]*' | head -1 | cut -d: -f2)
   running=$(echo "$stats" | grep -o '"running":[0-9]*' | head -1 | cut -d: -f2)
@@ -113,8 +117,8 @@ echo
 total_elapsed=$(( $(date +%s) - started ))
 echo
 
-succeeded=$(curl -s "${auth[@]}" "$SERVER/v1/jobs?state=succeeded&limit=500" | grep -o '"count":[0-9]*' | cut -d: -f2)
-failed=$(curl -s "${auth[@]}" "$SERVER/v1/jobs?state=failed&limit=500" | grep -o '"count":[0-9]*' | cut -d: -f2)
+succeeded=$(curl -s ${auth[@]+"${auth[@]}"} "$SERVER/v1/jobs?state=succeeded&limit=500" | grep -o '"count":[0-9]*' | cut -d: -f2)
+failed=$(curl -s ${auth[@]+"${auth[@]}"} "$SERVER/v1/jobs?state=failed&limit=500" | grep -o '"count":[0-9]*' | cut -d: -f2)
 
 echo "outcome after ${total_elapsed}s:"
 echo "  succeeded: ${succeeded:-0}"
@@ -123,18 +127,18 @@ echo
 
 if [ "${failed:-0}" != "0" ]; then
   echo "failure breakdown:"
-  curl -s "${auth[@]}" "$SERVER/v1/jobs?state=failed&limit=500" \
+  curl -s ${auth[@]+"${auth[@]}"} "$SERVER/v1/jobs?state=failed&limit=500" \
     | grep -o '"kind":"[a-z_]*"' | sort | uniq -c | sed 's/^/  /'
   echo
 fi
 
 echo "final scheduler state:"
-curl -s "${auth[@]}" "$SERVER/v1/stats" | sed 's/^/  /'
+curl -s ${auth[@]+"${auth[@]}"} "$SERVER/v1/stats" | sed 's/^/  /'
 echo
 
 # The cost-control claim, checked rather than asserted: nothing should be left
 # running once the queue has drained.
-leftover=$(curl -s "${auth[@]}" "$SERVER/v1/stats" | grep -o '"running":[0-9]*' | head -1 | cut -d: -f2)
+leftover=$(curl -s ${auth[@]+"${auth[@]}"} "$SERVER/v1/stats" | grep -o '"running":[0-9]*' | head -1 | cut -d: -f2)
 if [ "${leftover:-0}" != "0" ]; then
   echo "WARNING: $leftover job(s) still running after the queue drained"
   exit 1

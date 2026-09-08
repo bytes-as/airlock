@@ -63,11 +63,18 @@ Confirming existence would leak the shape of other tenants' work.
 
 ## 3. Filesystem and process isolation
 
-Per job: read-only root filesystem, tmpfs for writes (so the filesystem vanishes
-with the container by construction rather than by remembering to delete it),
-`cap-drop ALL`, `no-new-privileges` (a setuid binary cannot regain what was
+Per job: read-only root filesystem, tmpfs for scratch writes (so scratch space
+vanishes with the container by construction rather than by remembering to delete
+it), `cap-drop ALL`, `no-new-privileges` (a setuid binary cannot regain what was
 dropped), non-root uid, a pids limit against fork bombs, and always a memory
 limit.
+
+The artifact directory is a per-job host bind mount rather than tmpfs, since a
+tmpfs is unmounted on exit and would destroy the output before it is collected.
+It is created per job, removed by `Destroy`, and never shared between jobs.
+Artifacts are copied out without following symlinks: the agent writes into that
+directory, so a symlink in it is attacker-controlled, and following one would
+turn "collect the screenshots" into an arbitrary host file read.
 
 **What this is not.** Containers share a kernel. A kernel exploit crosses the
 boundary. The brief mentions "total filesystem and memory isolation" — that

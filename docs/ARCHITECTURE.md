@@ -177,9 +177,9 @@ route exposes it.
 | Secrets | non-leakage through `fmt`, JSON, state files, labels, container names |
 | Signed URLs | expiry, forgery, field-substitution, length-prefix collision |
 | Traversal | tar entries and artifact names, both directions |
-| Terraform | `fmt`, `validate`, `tflint`, `checkov` — **not applied** |
-| Docker driver | framing, extraction, policy refusal — **integration never run** |
-| Races | **not run locally** (no cgo); runs in CI |
+| Terraform | `fmt`, `validate`, `tflint` pass; `checkov` **19 findings open** — **not applied** |
+| Docker driver | framing, extraction, policy refusal, **plus 11/11 integration tests against a live daemon** |
+| Races | **clean** — `-race` across every package |
 
 The `fargate` driver is not implemented. The interface, Terraform and IAM model
 for it exist. Two drivers were built to pressure-test the abstraction against

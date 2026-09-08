@@ -20,9 +20,9 @@ flowchart TB
 
     DRV --> PROC["process<br/>no isolation"]
     DRV --> DOCK["docker<br/>container + egress control"]
-    DRV --> FARG["fargate<br/>not implemented"]
+    DRV --> FARG["fargate<br/>written, never executed"]
 
-    PROC & DOCK --> ENV["Ephemeral environment"]
+    PROC & DOCK & FARG --> ENV["Ephemeral environment"]
 
     ENV --> LOGS["Log stream<br/>SSE, live + replay"]
     ENV --> ART["Artifacts<br/>HMAC-signed URLs"]
@@ -34,6 +34,15 @@ flowchart TB
     style FARG fill:#f8d7da,stroke:#721c24,color:#000
     style REAP fill:#d4edda,stroke:#155724,color:#000
 ```
+
+**Fully verified locally, end to end. Designed for AWS and implemented against
+it — Terraform, ECR, ECS task definitions, IAM and a `fargate` driver — but
+never executed there, and labelled as such throughout.**
+
+> **[docs/RUNBOOK.md](docs/RUNBOOK.md) is the operator's guide**: every command
+> to build, run, test, deploy and tear this down, with what you should see and
+> what to do when you see something else. Written to be followed without
+> reading the code. Start there if you want to run it rather than read it.
 
 ---
 
@@ -291,10 +300,14 @@ through `fmt`, `%#v` or JSON, which is how credentials actually leak. A redactor
 scrubs known values from agent output, because the *agent* may print its own
 credentials even though the platform never does.
 
-Isolation: per-job container with a read-only root filesystem, tmpfs for writes
-(so the job's filesystem vanishes with the container by construction),
+Isolation: per-job container with a read-only root filesystem, tmpfs for scratch
+writes (so the job's scratch space vanishes with the container by construction),
 `cap-drop ALL`, `no-new-privileges`, a non-root uid, a pids limit against fork
-bombs, and always a memory limit.
+bombs, and always a memory limit. The artifact directory is the one deliberate
+exception: it is a per-job host bind mount, because output that vanishes with
+the container cannot be collected after the job — or after a crash, which is
+when it is most worth having. It is removed on `Destroy` alongside the
+container.
 
 **Honestly**: containers share a kernel. This is not the "total memory isolation"
 the brief mentions — that needs a hypervisor boundary. Fargate provides one;
@@ -422,39 +435,117 @@ way to lose a reviewer's trust. So, plainly:
 | Failure taxonomy, deadlines, retries, reaping | ✅ tested, including crash and hang paths |
 | Secret non-leakage, signed URLs, path traversal | ✅ tested |
 | HTTP API, SSE streaming, signed downloads | ✅ tested and exercised live |
-| Terraform | ⚠️ `fmt`, `validate`, `tflint`, `checkov` pass — **never applied** |
-| `docker` driver | ⚠️ pure logic tested; **integration tests never executed** |
-| `fargate` driver | ❌ **not implemented** — the Terraform describes its infrastructure |
-| Race detector | ⚠️ needs cgo, unavailable on the authoring machine; **runs in CI** |
+| `docker` driver | ✅ integration suite executed against a live daemon — 11/11 |
+| Race detector | ✅ clean — `-race` across every package, no data races |
+| Terraform | ⚠️ `fmt`, `validate`, `tflint` pass; **`checkov` reports 19 findings**; **never applied** |
+| `fargate` driver | ⚠️ implemented and unit tested against fakes; **never executed against AWS** |
+
+Verified on macOS 26.5.1 (arm64), Go 1.27.0, Docker Engine 29.1.3, Terraform 1.16.1.
+Reproduce any row with [docs/RUNBOOK.md](docs/RUNBOOK.md).
 
 **No AWS account was available.** `terraform plan` needs credentials, so
-"validated" means *static* validation, not a plan against a real account. The
-Docker integration tests are written and compile but were authored on a machine
-without Docker; CI is the first place they run.
+"validated" means *static* validation, not a plan against a real account.
+Checkov is **not** clean: 155 checks pass and 19 fail, mostly CloudWatch log
+groups without KMS encryption or a one-year retention, and the reaper Lambda
+without a DLQ, X-Ray, VPC placement or code-signing. Those are real findings
+left open on purpose rather than silenced — the infrastructure is never applied,
+and each one is a cost or complexity trade-off that deserves a decision rather
+than a reflexive skip.
 
-The `fargate` driver is the honest gap: the interface, the Terraform and the
-IAM model for it exist, the implementation does not. Two drivers were built to
-pressure-test the abstraction; a third written blind against an API I could not
-call would have been decoration.
+### What the first Docker run actually found
+
+The Docker driver was written on a machine with no Docker daemon and the race
+detector on one with no cgo. Both claims above became true only after that code
+met a real daemon, and it did not survive the meeting intact. Recorded here
+because a table of green ticks is worth less than what it cost to earn them:
+
+- **Artifacts were never collectable.** `/artifacts` was a `tmpfs`, but
+  collection ran `docker cp` *after* the container exited — and a tmpfs is
+  unmounted on exit. Every job silently produced zero artifacts, and the failure
+  was invisible because "nothing written" and "everything destroyed" look
+  identical from outside. `/artifacts` is now a per-job host bind mount, which
+  also means a *crashed* agent's output survives, which is when it matters most.
+- **The pinned Engine API version was below the floor.** The client pinned
+  `v1.43`; Docker Engine 29 rejects anything below `v1.44` with a 400 before the
+  handler runs. Every integration test skipped with "daemon not available"
+  against a daemon that was running — a false green, not a failure.
+- **A read-only-filesystem assertion was self-satisfying.** The test matched the
+  marker `WRITABLE` as a substring, which also matches `ARTIFACTS_WRITABLE`, so
+  a correctly hardened container failed its own hardening test.
+- **`scripts/load-test.sh` was committed non-executable** (mode 644, an artifact
+  of authoring on Windows), so the 50-concurrent load test could not run at all
+  — locally or in CI. It also died on macOS under `set -u`, where bash 3.2
+  treats an empty array expansion as an unbound variable.
+
+The race detector, by contrast, found nothing: the scheduler, queue, admission
+controller and log broker are clean on their first real run.
+
+### The AWS path, and exactly how far to trust it
+
+The `fargate` driver exists, and the Terraform provisions everything it needs:
+VPC and NAT, ECS cluster with Fargate Spot, task definitions, ECR repositories,
+an S3 artifact bucket, scoped IAM, CloudWatch alarms and a Lambda reaper. The
+runbook walks through deploying it.
+
+It has never run. That is not a hedge, it is the single most useful thing this
+section can tell you, and this project has already paid for the lesson: the
+`docker` driver spent weeks in the state "written and compiles", and the first
+contact with a real daemon found four bugs — one of which meant artifacts could
+**never** be collected, on any job, silently. The `fargate` driver is at exactly
+that maturity. My own guess at what breaks first is the CloudWatch log stream
+name, an IAM gap, and an architecture mismatch on the pushed image.
+
+What *is* demonstrable without an AWS account is the thing the abstraction was
+for: the scheduler, reaper, admission control, failure taxonomy, API and CLI are
+driver-agnostic. Moving from a container on a laptop to a task in a VPC touches
+one package and one `switch` statement. Three drivers now pressure-test that
+interface rather than two, and the third one found no reason to change it.
+
+**Known limitations of the AWS path, even if the driver is correct:**
+
+- **A crashed agent uploads no artifacts.** The agent tars and PUTs its own
+  output to a presigned URL, so a hard kill loses it — precisely when it was
+  most worth having. The fix is a sidecar that uploads on task exit.
+- **The control plane's served copy of artifacts is task-local.** They are
+  durable in S3, but the store the API reads from is on the task's own disk, so
+  a control-plane restart loses the links. The fix is an S3-backed
+  `artifact.Store`; the interface already exists.
+- **Images are fixed by the task definition**, so `--image` is refused rather
+  than silently ignored. Per-job images mean registering a task definition
+  revision per image.
+- **The queue stays embedded.** SQS is provisioned but deliberately unused:
+  `queue.Queue` is a job *store* — priority claim, get, list, update — and SQS
+  cannot implement it. Pretending otherwise would have been a worse lie than
+  leaving it. See the scale ladder.
 
 ---
 
 ## What I would build next
 
-1. **The `fargate` driver.** The interface holds it; only the implementation is
-   missing.
-2. **Replace the embedded queue** with Redis or SQS, which is the single change
-   that lifts the one-host ceiling. Everything above the `Queue` interface is
-   already indifferent to it.
-3. **Per-tenant ready queues.** Today a tenant at its concurrency quota at the
+1. **Run the `fargate` driver against a real account.** It is written, wired and
+   unit tested; what it has never had is contact with ECS. Everything else on
+   this list is speculative until that happens, because the first real run is
+   where the actual next tasks get discovered — that is exactly how the four
+   bugs in the `docker` driver surfaced.
+2. **A sidecar that uploads artifacts on task exit**, so a crashed agent still
+   yields its output. Today the agent uploads its own, which is the one case
+   that cannot survive a hard kill.
+3. **An S3-backed `artifact.Store`**, so artifact links survive a control-plane
+   restart on Fargate. The `Store` interface is four methods and already exists;
+   the work is moving URL signing out of the local implementation.
+4. **Replace the embedded queue** with Redis, which is the single change that
+   lifts the one-host ceiling. Note this is Redis and not SQS: `queue.Queue` is
+   a job store with priority claims and arbitrary reads, and SQS provides
+   neither, so the swap needs a store alongside it rather than a drop-in.
+5. **Per-tenant ready queues.** Today a tenant at its concurrency quota at the
    head of the queue causes claim-and-release churn, bounded by a backoff. The
    real fix is round-robin selection across per-tenant queues so a blocked
    tenant is skipped rather than retried.
-4. **Session replay**, not just logs — periodic screenshots stitched into a
+6. **Session replay**, not just logs — periodic screenshots stitched into a
    scrubbable timeline. The artifact pipeline already carries the frames.
-5. **Prometheus metrics.** Structured logs and a `/v1/stats` endpoint exist;
+7. **Prometheus metrics.** Structured logs and a `/v1/stats` endpoint exist;
    queue age, dispatch latency and reap counts deserve to be scrapeable.
-6. **gVisor or Firecracker**, for the isolation claim the current design
+8. **gVisor or Firecracker**, for the isolation claim the current design
    deliberately does not make.
 
 ---
@@ -467,6 +558,8 @@ call would have been decoration.
 | `internal/driver` | the load-bearing interface |
 | `internal/driver/process` | zero-dependency driver, real |
 | `internal/driver/docker` | container driver with structural egress control |
+| `internal/driver/fargate` | AWS driver: ECS tasks, CloudWatch logs, S3 artifacts — never executed |
+| `internal/driver/archive` | the safe tar/directory extractor every driver shares |
 | `internal/queue` | durable lease-based priority queue |
 | `internal/admission` | rate limits and concurrency quotas |
 | `internal/scheduler` | worker pool, retries, teardown ordering |
@@ -478,11 +571,13 @@ call would have been decoration.
 | `cmd/ephemera` | CLI |
 | `cmd/ephemera-agent` | placeholder agent |
 | `deploy/terraform` | the IaC deliverable, layer-3 reaper included |
-| `docs/` | architecture and security notes |
+| `docs/` | runbook, architecture and security notes |
 
-Further reading: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the design
-decisions in full, [docs/SECURITY.md](docs/SECURITY.md) for the threat model and
-what it does not cover.
+Further reading: **[docs/RUNBOOK.md](docs/RUNBOOK.md)** to run, test, deploy or
+tear down anything without reading the code;
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the design decisions in full;
+[docs/SECURITY.md](docs/SECURITY.md) for the threat model and what it does not
+cover.
 
 ## Commands
 
@@ -493,6 +588,9 @@ make test-race    the race detector
 make test-docker  integration tests against a real daemon
 make load-test    50 concurrent jobs
 make up / down    the full stack with egress isolation
-make tf-validate  format-check and validate the Terraform
+make tf-validate  format-check and validate the Terraform (touches no AWS account)
 make ci           everything CI runs
 ```
+
+Every one of these, plus the AWS deployment and teardown, is written out
+step by step with expected output in **[docs/RUNBOOK.md](docs/RUNBOOK.md)**.

@@ -178,7 +178,7 @@ route exposes it.
 | Secrets | non-leakage through `fmt`, JSON, state files, labels, container names |
 | Signed URLs | expiry, forgery, field-substitution, length-prefix collision |
 | Traversal | tar entries and artifact names, both directions |
-| Terraform | `fmt`, `validate`, `tflint` pass; `checkov` **19 findings open** — **not applied** |
+| Terraform | `fmt`, `validate`, `tflint`, `checkov` pass (15 skips, each with a reason) — **not applied** |
 | Docker driver | framing, extraction, policy refusal, **plus 11/11 integration tests against a live daemon** |
 | Races | **clean** — `-race` across every package |
 

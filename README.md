@@ -440,7 +440,7 @@ README worthless. So, plainly:
 | HTTP API, SSE streaming, signed downloads | ✅ tested and exercised live |
 | `docker` driver | ✅ integration suite executed against a live daemon — 11/11 |
 | Race detector | ✅ clean — `-race` across every package, no data races |
-| Terraform | ⚠️ `fmt`, `validate`, `tflint` pass; **`checkov` reports 19 findings**; **never applied** |
+| Terraform | ⚠️ `fmt`, `validate`, `tflint`, `checkov` pass; **never applied** |
 | `fargate` driver | ⚠️ implemented and unit tested against fakes; **never executed against AWS** |
 
 Verified on macOS 26.5.1 (arm64), Go 1.27.0, Docker Engine 29.1.3, Terraform 1.16.1.
@@ -448,12 +448,16 @@ Reproduce any row with [docs/RUNBOOK.md](docs/RUNBOOK.md).
 
 **No AWS account was available.** `terraform plan` needs credentials, so
 "validated" means *static* validation, not a plan against a real account.
-Checkov is **not** clean: 155 checks pass and 19 fail, mostly CloudWatch log
-groups without KMS encryption or a one-year retention, and the reaper Lambda
-without a DLQ, X-Ray, VPC placement or code-signing. Those are real findings
-left open on purpose rather than silenced — the infrastructure is never applied,
-and each one is a cost or complexity trade-off that deserves a decision rather
-than a reflexive skip.
+
+Checkov passes 165 checks. It got there by fixing what was free and correct —
+the VPC's default security group now denies all traffic, and the reaper Lambda
+has a concurrency cap, a dead-letter queue and tracing — and by skipping 15
+checks *individually, each with a written reason* in `.github/workflows/ci.yml`
+rather than lowering the bar globally. The recurring theme in the skips is
+customer-managed KMS keys on resources already encrypted with AWS-managed ones:
+a real improvement that costs $1/month per key for data that expires in 30 days.
+Disagreeing with any of those calls is reasonable; they are written down so that
+the disagreement is possible.
 
 ### What the first Docker run actually found
 

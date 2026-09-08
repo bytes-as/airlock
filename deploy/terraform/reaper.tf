@@ -129,12 +129,37 @@ resource "aws_lambda_function" "reaper" {
   memory_size   = 256
   architectures = ["arm64"]
 
+  # One reaper at a time. It is idempotent, so an overlapping run is not a
+  # correctness problem, but this is the backstop for a *cost* guarantee and an
+  # unbounded fan-out of it calling ECS in a loop would be its own incident.
+  reserved_concurrent_executions = 1
+
+  # A reaper that fails silently is indistinguishable from a reaper that had
+  # nothing to do, and the difference is "no tasks are leaking" versus "tasks
+  # are leaking and nobody knows". Failed asynchronous invocations land here.
+  dead_letter_config {
+    target_arn = aws_sqs_queue.reaper_dlq.arn
+  }
+
+  tracing_config {
+    mode = "Active"
+  }
+
   environment {
     variables = {
       CLUSTER              = aws_ecs_cluster.main.name
       MAX_LIFETIME_MINUTES = var.max_job_lifetime_minutes
     }
   }
+}
+
+# Failures of the outermost cost guarantee, kept where an alarm can see them.
+resource "aws_sqs_queue" "reaper_dlq" {
+  name                      = "${local.name}-reaper-dlq"
+  message_retention_seconds = 1209600 # 14 days, the maximum
+  sqs_managed_sse_enabled   = true
+
+  tags = { Name = "${local.name}-reaper-dlq" }
 }
 
 resource "aws_cloudwatch_log_group" "reaper" {

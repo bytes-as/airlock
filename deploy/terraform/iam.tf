@@ -236,6 +236,22 @@ data "aws_iam_policy_document" "reaper" {
     actions   = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]
     resources = ["arn:aws:logs:${var.region}:${data.aws_caller_identity.current.account_id}:*"]
   }
+
+  # Its own dead-letter queue. Without this the DLQ silently receives nothing
+  # and a failing reaper looks exactly like an idle one.
+  statement {
+    sid       = "DeadLetterQueue"
+    effect    = "Allow"
+    actions   = ["sqs:SendMessage"]
+    resources = [aws_sqs_queue.reaper_dlq.arn]
+  }
+
+  statement {
+    sid       = "Tracing"
+    effect    = "Allow"
+    actions   = ["xray:PutTraceSegments", "xray:PutTelemetryRecords"]
+    resources = ["*"]
+  }
 }
 
 resource "aws_iam_role_policy" "reaper" {

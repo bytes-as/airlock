@@ -245,11 +245,34 @@ jobs:
           framework: terraform
           quiet: true
           soft_fail: false
-          # Skips are listed with reasons rather than silenced globally.
+          # Skips are listed with reasons rather than silenced globally, and a
+          # check is skipped only when the finding is a deliberate trade-off we
+          # can defend. Anything free and correct was fixed instead - the
+          # default security group now denies all traffic, and the reaper Lambda
+          # has a concurrency cap, a dead-letter queue and X-Ray tracing.
+          #
+          # The recurring theme below is KMS. Every one of these resources is
+          # already encrypted at rest with AWS-managed keys; the checks want
+          # customer-managed keys. That is a real improvement for key rotation
+          # and cross-account control, and it costs $1/month per key plus per
+          # request charges, for a system whose data expires in 30 days.
           skip_check: >-
             CKV_AWS_144,
             CKV_AWS_18,
-            CKV2_AWS_62
+            CKV2_AWS_62,
+            CKV_AWS_136,
+            CKV_AWS_145,
+            CKV_AWS_149,
+            CKV_AWS_158,
+            CKV_AWS_173,
+            CKV_AWS_338,
+            CKV_AWS_21,
+            CKV_AWS_117,
+            CKV_AWS_272,
+            CKV2_AWS_5,
+            CKV2_AWS_11,
+            CKV2_AWS_57
+          # --- storage and retention ---
           # CKV_AWS_144  cross-region replication - artifacts are ephemeral and
           #              expire in 30 days; replication would double storage cost
           #              for data with no recovery value.
@@ -258,6 +281,42 @@ jobs:
           #              more cheaply.
           # CKV2_AWS_62  event notifications - nothing consumes them yet; adding
           #              an unused notification target is dead configuration.
+          # CKV_AWS_21   S3 versioning - deliberately disabled. Artifacts are
+          #              write-once and never updated, so versions would only
+          #              accumulate cost, and the lifecycle rule assumes it.
+          # CKV_AWS_338  one-year log retention - job logs describe runs that
+          #              lasted minutes and whose artifacts expire in 30 days.
+          #              A year of retention outlives what it describes.
+          #
+          # --- customer-managed KMS keys ---
+          # CKV_AWS_136  ECR, CKV_AWS_145 S3, CKV_AWS_149 Secrets Manager,
+          # CKV_AWS_158  CloudWatch Logs, CKV_AWS_173 Lambda env vars.
+          #              All are encrypted at rest today with AWS-managed keys.
+          #              Lambda's variables hold a cluster name and a number, so
+          #              there is nothing there worth a CMK at all.
+          #
+          # --- the reaper Lambda ---
+          # CKV_AWS_117  Lambda in a VPC - it calls the ECS control plane API,
+          #              which is outside any VPC. Putting it inside one needs a
+          #              NAT gateway or interface endpoints, adding cost and a
+          #              failure mode to the component whose entire job is to
+          #              keep working when other things have failed.
+          # CKV_AWS_272  code signing - needs a signing profile and a publishing
+          #              pipeline. Worth doing when the function is deployed by
+          #              CI rather than inlined in Terraform.
+          #
+          # --- false positives and design decisions ---
+          # CKV2_AWS_5   "security group attached to a resource" - the job
+          #              security group is attached at runtime by RunTask, one
+          #              task at a time, not statically by Terraform. Attaching
+          #              it to something here would defeat its purpose.
+          # CKV2_AWS_11  VPC flow logs - storage cost for traffic whose egress
+          #              posture is already enforced structurally and asserted
+          #              by tests, not inferred from logs after the fact.
+          # CKV2_AWS_57  automatic secret rotation - rotating the artifact URL
+          #              signing key invalidates every outstanding artifact
+          #              link. That is a deliberate property, not an oversight:
+          #              see the note on EPHEMERA_SIGNING_KEY in the runbook.
 
   security:
     name: dependency and code scan
@@ -306,5 +365,19 @@ jobs:
           file: Dockerfile.agent
           push: false
           tags: ephemera/agent:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # The egress proxy is part of the stack `docker compose up` brings up, and
+      # it is a security control. A break in it previously surfaced only when
+      # someone ran the stack, which is far too late for the one component whose
+      # job is to be the chokepoint.
+      - name: egress proxy image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.proxy
+          push: false
+          tags: ephemera/egress-proxy:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max

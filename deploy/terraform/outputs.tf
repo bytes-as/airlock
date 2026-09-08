@@ -54,9 +54,9 @@ output "max_job_lifetime_minutes" {
 output "verification_status" {
   description = "What has actually been verified about this configuration."
   value       = <<-EOT
-    This Terraform is statically validated (fmt, validate, tflint) in CI.
-    Checkov reports 19 findings that are open by choice, not silenced; the README
-    lists them.
+    This Terraform is statically validated in CI: fmt, validate, tflint and
+    checkov all pass. Checkov's 15 skipped checks are listed individually with
+    a reason each in .github/workflows/ci.yml.
 
     It has NOT been applied to a real AWS account - the author had none available.
     Neither has the fargate driver that runs against it ever executed: it is

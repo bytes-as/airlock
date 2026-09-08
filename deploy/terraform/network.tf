@@ -47,6 +47,19 @@ resource "aws_vpc" "main" {
   tags = { Name = local.name }
 }
 
+# The default security group allows all traffic between anything assigned to it,
+# and every VPC has one whether or not you use it. Anything created later
+# without an explicit security group lands here, so leaving it permissive means
+# the account's next mistake is pre-authorised. Declaring it with no rules at
+# all costs nothing and removes that.
+resource "aws_default_security_group" "main" {
+  vpc_id = aws_vpc.main.id
+
+  # No ingress and no egress blocks: deliberately empty, which denies both.
+
+  tags = { Name = "${local.name}-default-deny" }
+}
+
 resource "aws_internet_gateway" "main" {
   vpc_id = aws_vpc.main.id
   tags   = { Name = local.name }

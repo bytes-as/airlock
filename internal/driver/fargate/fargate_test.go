@@ -17,8 +17,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
 
-	"github.com/bytes-as/ephemera/internal/driver"
-	"github.com/bytes-as/ephemera/internal/job"
+	"github.com/bytes-as/airlock/internal/driver"
+	"github.com/bytes-as/airlock/internal/job"
 )
 
 // These tests exercise the driver against fakes. They prove the logic that does
@@ -128,7 +128,7 @@ func testDriver(t *testing.T, e *fakeECS, l *fakeLogs, o *fakeObjects) *Driver {
 	cfg.TaskDefinition = "eph-job"
 	cfg.Subnets = []string{"subnet-1"}
 	cfg.SecurityGroups = []string{"sg-1"}
-	cfg.LogGroup = "/ephemera/dev/jobs"
+	cfg.LogGroup = "/airlock/dev/jobs"
 	cfg.ArtifactBucket = "bucket"
 	cfg.PollInterval = time.Millisecond
 
@@ -276,7 +276,7 @@ func TestCreateInjectsUploadURLAndSecrets(t *testing.T) {
 	for _, kv := range e.runInput.Overrides.ContainerOverrides[0].Environment {
 		env[aws.ToString(kv.Name)] = aws.ToString(kv.Value)
 	}
-	if env["EPHEMERA_ARTIFACT_UPLOAD_URL"] == "" {
+	if env["AIRLOCK_ARTIFACT_UPLOAD_URL"] == "" {
 		t.Error("the agent has no way to return artifacts without an upload URL")
 	}
 	if env["TOKEN"] != "s3cr3t" {
@@ -561,7 +561,7 @@ func TestLogConfigFallsBackWhenTheTaskDefinitionCannotBeRead(t *testing.T) {
 	d := testDriver(t, e, &fakeLogs{}, &fakeObjects{})
 
 	got := d.resolveLogConfig(context.Background())
-	if got.group != "/ephemera/dev/jobs" || got.prefix != "job" || got.container != "agent" {
+	if got.group != "/airlock/dev/jobs" || got.prefix != "job" || got.container != "agent" {
 		t.Errorf("fallback not applied: %+v", got)
 	}
 }

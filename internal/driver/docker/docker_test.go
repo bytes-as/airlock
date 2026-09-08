@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bytes-as/ephemera/internal/driver"
-	"github.com/bytes-as/ephemera/internal/job"
+	"github.com/bytes-as/airlock/internal/driver"
+	"github.com/bytes-as/airlock/internal/job"
 )
 
 // These tests cover the parts of the Docker driver that do not need a daemon:
@@ -297,7 +297,7 @@ func TestExtractTarOnEmptyArchive(t *testing.T) {
 // driver: Docker enforces "none" and "proxied" structurally, but cannot apply a
 // CIDR deny list on a bridge network without host firewall rules it does not own.
 func TestNetworkPolicyRefusesWhatItCannotEnforce(t *testing.T) {
-	withNetwork := &Driver{cfg: Config{Network: "ephemera-internal"}}
+	withNetwork := &Driver{cfg: Config{Network: "airlock-internal"}}
 	withoutNetwork := &Driver{cfg: Config{}}
 
 	t.Run("none is always enforceable", func(t *testing.T) {
@@ -315,7 +315,7 @@ func TestNetworkPolicyRefusesWhatItCannotEnforce(t *testing.T) {
 		if err != nil {
 			t.Fatalf("err = %v", err)
 		}
-		if mode != "ephemera-internal" {
+		if mode != "airlock-internal" {
 			t.Errorf("mode = %q", mode)
 		}
 	})
@@ -366,7 +366,7 @@ func TestNetworkPolicyRefusesWhatItCannotEnforce(t *testing.T) {
 // handed proxy settings it should not use.
 func TestProxyIsInjectedOnlyWhenProxied(t *testing.T) {
 	d := &Driver{cfg: Config{
-		Network:  "ephemera-internal",
+		Network:  "airlock-internal",
 		ProxyURL: "http://egress-proxy:3128",
 	}}
 
@@ -402,9 +402,9 @@ func TestBuildEnvCarriesJobContextAndSecrets(t *testing.T) {
 	}, EgressProxy{})
 
 	for _, want := range []string{
-		"EPHEMERA_JOB_ID=job_42",
-		"EPHEMERA_TENANT_ID=tenant-a",
-		"EPHEMERA_ARTIFACT_DIR=/artifacts",
+		"AIRLOCK_JOB_ID=job_42",
+		"AIRLOCK_TENANT_ID=tenant-a",
+		"AIRLOCK_ARTIFACT_DIR=/artifacts",
 		"PUBLIC=visible",
 		// The secret must genuinely reach the container's environment...
 		"API_TOKEN=sk-live-secret-value",
@@ -591,7 +591,7 @@ var _ = time.Now
 // --- egress rotation -------------------------------------------------------
 
 func poolDriver(pool ...EgressProxy) *Driver {
-	return &Driver{cfg: Config{Network: "ephemera-internal", ProxyPool: pool}}
+	return &Driver{cfg: Config{Network: "airlock-internal", ProxyPool: pool}}
 }
 
 // TestProxyRotationIsRoundRobin: with a small pool, random selection visibly
@@ -730,7 +730,7 @@ func TestEgressRegionIsRecordedForTheAgent(t *testing.T) {
 		driver.EnvSpec{JobID: "job_1", Network: driver.NetworkPolicy{Mode: driver.NetworkProxied}},
 		EgressProxy{URL: "http://eu1:8888", Region: "eu-west-1"},
 	)
-	if !containsPrefix(env, "EPHEMERA_EGRESS_REGION=eu-west-1") {
+	if !containsPrefix(env, "AIRLOCK_EGRESS_REGION=eu-west-1") {
 		t.Errorf("egress region not recorded in the environment: %v", env)
 	}
 }

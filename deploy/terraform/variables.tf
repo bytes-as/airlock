@@ -43,13 +43,13 @@ variable "availability_zone_count" {
 variable "control_plane_image" {
   description = "Container image for the control plane."
   type        = string
-  default     = "ephemera/control-plane:dev"
+  default     = "airlock/control-plane:dev"
 }
 
 variable "agent_image" {
   description = "Container image agents run in."
   type        = string
-  default     = "ephemera/agent:dev"
+  default     = "airlock/agent:dev"
 }
 
 variable "control_plane_cpu" {

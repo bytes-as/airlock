@@ -1,4 +1,4 @@
-# ephemera - build, test and run
+# airlock - build, test and run
 #
 # Every target here is also a line in the README, so anyone can run what they
 # read. `make help` lists them, and docs/RUNBOOK.md explains each one.
@@ -16,7 +16,7 @@ GOFLAGS ?= -trimpath
 ## help: list available targets
 .PHONY: help
 help:
-	@echo "ephemera $(VERSION)"
+	@echo "airlock $(VERSION)"
 	@echo
 	@grep -E '^## ' $(MAKEFILE_LIST) | sed 's/^## /  /' | sort
 
@@ -24,9 +24,9 @@ help:
 .PHONY: build
 build:
 	@mkdir -p $(BIN)
-	CGO_ENABLED=0 $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BIN)/ephemerad ./cmd/ephemerad
-	CGO_ENABLED=0 $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BIN)/ephemera ./cmd/ephemera
-	CGO_ENABLED=0 $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BIN)/ephemera-agent ./cmd/ephemera-agent
+	CGO_ENABLED=0 $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BIN)/airlockd ./cmd/airlockd
+	CGO_ENABLED=0 $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BIN)/airlock ./cmd/airlock
+	CGO_ENABLED=0 $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BIN)/airlock-agent ./cmd/airlock-agent
 	@echo "built $(VERSION) into ./$(BIN)"
 
 ## test: run every test that does not need Docker
@@ -72,18 +72,18 @@ cross:
 ## run: run the control plane locally with the process driver
 .PHONY: run
 run: build
-	$(BIN)/ephemerad --data-dir ./data --log-level debug
+	$(BIN)/airlockd --data-dir ./data --log-level debug
 
 ## demo: run one job end to end against a locally running control plane
 .PHONY: demo
 demo: build
-	$(BIN)/ephemera run --command "$(PWD)/$(BIN)/ephemera-agent" --query "ephemeral environments"
+	$(BIN)/airlock run --command "$(PWD)/$(BIN)/airlock-agent" --query "airlockl environments"
 
 ## up: build and start the full stack in Docker, with egress isolation
 .PHONY: up
 up:
 	docker compose up --build -d
-	@echo "control plane on http://localhost:$${EPHEMERA_PORT:-8080}"
+	@echo "control plane on http://localhost:$${AIRLOCK_PORT:-8080}"
 
 ## down: stop the stack and remove its volumes
 .PHONY: down

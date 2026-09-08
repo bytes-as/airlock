@@ -27,12 +27,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bytes-as/ephemera/internal/admission"
-	"github.com/bytes-as/ephemera/internal/artifact"
-	"github.com/bytes-as/ephemera/internal/job"
-	"github.com/bytes-as/ephemera/internal/logstream"
-	"github.com/bytes-as/ephemera/internal/queue"
-	"github.com/bytes-as/ephemera/internal/scheduler"
+	"github.com/bytes-as/airlock/internal/admission"
+	"github.com/bytes-as/airlock/internal/artifact"
+	"github.com/bytes-as/airlock/internal/job"
+	"github.com/bytes-as/airlock/internal/logstream"
+	"github.com/bytes-as/airlock/internal/queue"
+	"github.com/bytes-as/airlock/internal/scheduler"
 )
 
 // Config tunes the HTTP surface.
@@ -495,7 +495,7 @@ func (s *Server) authenticate(w http.ResponseWriter, r *http.Request) (string, b
 	header := r.Header.Get("Authorization")
 	token, found := strings.CutPrefix(header, "Bearer ")
 	if !found || token == "" {
-		w.Header().Set("WWW-Authenticate", `Bearer realm="ephemera"`)
+		w.Header().Set("WWW-Authenticate", `Bearer realm="airlock"`)
 		s.writeError(w, http.StatusUnauthorized, "unauthenticated", "a bearer token is required")
 		return "", false
 	}
@@ -504,7 +504,7 @@ func (s *Server) authenticate(w http.ResponseWriter, r *http.Request) (string, b
 		// Deliberately identical to the missing-token response: distinguishing
 		// "no token" from "wrong token" tells an attacker when they have found
 		// a real one.
-		w.Header().Set("WWW-Authenticate", `Bearer realm="ephemera"`)
+		w.Header().Set("WWW-Authenticate", `Bearer realm="airlock"`)
 		s.writeError(w, http.StatusUnauthorized, "unauthenticated", "a bearer token is required")
 		return "", false
 	}

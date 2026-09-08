@@ -9,17 +9,17 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bytes-as/ephemera/internal/job"
+	"github.com/bytes-as/airlock/internal/job"
 )
 
 func TestChainRoutesBySourceName(t *testing.T) {
 	ctx := context.Background()
 	chain := NewChain(
 		&StaticSource{Values: map[string]job.Secret{"token": "static-value"}},
-		&EnvSource{Prefix: "EPHEMERA_TEST_SECRET_"},
+		&EnvSource{Prefix: "AIRLOCK_TEST_SECRET_"},
 	)
 
-	t.Setenv("EPHEMERA_TEST_SECRET_API_KEY", "env-value")
+	t.Setenv("AIRLOCK_TEST_SECRET_API_KEY", "env-value")
 
 	resolved, err := chain.Resolve(ctx, []job.SecretRef{
 		{Name: "TOKEN", Source: "static", Key: "token"},
@@ -99,9 +99,9 @@ func TestResolveEmptyIsNotAnError(t *testing.T) {
 // any host variable and exfiltrate it.
 func TestEnvSourcePrefixContainsTheBlastRadius(t *testing.T) {
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "host-credential-do-not-leak")
-	t.Setenv("EPHEMERA_SECRET_SAFE", "intended-value")
+	t.Setenv("AIRLOCK_SECRET_SAFE", "intended-value")
 
-	source := &EnvSource{Prefix: "EPHEMERA_SECRET_"}
+	source := &EnvSource{Prefix: "AIRLOCK_SECRET_"}
 
 	if _, err := source.Get(context.Background(), "AWS_SECRET_ACCESS_KEY"); !errors.Is(err, ErrNotFound) {
 		t.Error("prefix did not prevent reading an arbitrary host variable")

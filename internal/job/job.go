@@ -163,7 +163,7 @@ func NewID(now time.Time) string {
 	if _, err := rand.Read(b[6:]); err != nil {
 		// crypto/rand does not fail on any supported platform; if it somehow
 		// does, a panic is correct — silently issuing weak IDs is worse.
-		panic(fmt.Sprintf("ephemera: cannot read random bytes for job ID: %v", err))
+		panic(fmt.Sprintf("airlock: cannot read random bytes for job ID: %v", err))
 	}
 	return "job_" + idEncoding.EncodeToString(b[:])
 }

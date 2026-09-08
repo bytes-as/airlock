@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bytes-as/ephemera/internal/job"
-	"github.com/bytes-as/ephemera/internal/queue"
+	"github.com/bytes-as/airlock/internal/job"
+	"github.com/bytes-as/airlock/internal/queue"
 )
 
 var base = time.Date(2026, 9, 8, 12, 0, 0, 0, time.UTC)

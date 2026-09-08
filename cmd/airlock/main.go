@@ -1,4 +1,4 @@
-// Command ephemera is the command-line client for the control plane.
+// Command airlock is the command-line client for the control plane.
 //
 // It exists because someone with ten minutes should be able to run one command
 // and watch a job happen, rather than assemble curl invocations from a README.
@@ -56,7 +56,7 @@ func run(args []string) error {
 	case "stats":
 		return cmdStats(rest)
 	case "version":
-		fmt.Printf("ephemera %s\n", version)
+		fmt.Printf("airlock %s\n", version)
 		return nil
 	case "help", "-h", "--help":
 		usage()
@@ -68,10 +68,10 @@ func run(args []string) error {
 }
 
 func usage() {
-	fmt.Fprint(os.Stderr, `ephemera - client for the ephemera control plane
+	fmt.Fprint(os.Stderr, `airlock - client for the airlock control plane
 
 Usage:
-  ephemera <command> [flags]
+  airlock <command> [flags]
 
 Commands:
   run         Submit a job, stream its logs, and report the result
@@ -84,14 +84,14 @@ Commands:
   version     Print the version
 
 Common flags:
-  --server    Control plane URL (default http://localhost:8080, or EPHEMERA_SERVER)
-  --token     Bearer token (or EPHEMERA_TOKEN)
+  --server    Control plane URL (default http://localhost:8080, or AIRLOCK_SERVER)
+  --token     Bearer token (or AIRLOCK_TOKEN)
 
 Examples:
-  ephemera run --command /usr/local/bin/ephemera-agent --query "site reliability"
-  ephemera run --image ephemera/agent:latest --priority high --deadline 2m
-  ephemera list --state failed
-  ephemera logs job_06g83kwj5951twb2ycswewf9mc
+  airlock run --command /usr/local/bin/airlock-agent --query "site reliability"
+  airlock run --image airlock/agent:latest --priority high --deadline 2m
+  airlock list --state failed
+  airlock logs job_06g83kwj5951twb2ycswewf9mc
 
 `)
 }
@@ -104,8 +104,8 @@ type common struct {
 }
 
 func (c *common) bind(fs *flag.FlagSet) {
-	fs.StringVar(&c.server, "server", envOr("EPHEMERA_SERVER", "http://localhost:8080"), "control plane URL")
-	fs.StringVar(&c.token, "token", os.Getenv("EPHEMERA_TOKEN"), "bearer token")
+	fs.StringVar(&c.server, "server", envOr("AIRLOCK_SERVER", "http://localhost:8080"), "control plane URL")
+	fs.StringVar(&c.token, "token", os.Getenv("AIRLOCK_TOKEN"), "bearer token")
 }
 
 // jobFlags are the submission options shared by `run` and `submit`.
@@ -128,7 +128,7 @@ func (j *jobFlags) bind(fs *flag.FlagSet) {
 	j.common.bind(fs)
 	fs.StringVar(&j.image, "image", "", "container image carrying the agent")
 	fs.StringVar(&j.command, "command", "", "command to run (space separated)")
-	fs.StringVar(&j.query, "query", "", "convenience for EPHEMERA_QUERY, the agent's search term")
+	fs.StringVar(&j.query, "query", "", "convenience for AIRLOCK_QUERY, the agent's search term")
 	fs.StringVar(&j.priority, "priority", "normal", "low, normal or high")
 	fs.DurationVar(&j.deadline, "deadline", 0, "maximum run time (0 uses the server default)")
 	fs.IntVar(&j.attempts, "attempts", 0, "maximum attempts (0 uses the server default)")
@@ -153,7 +153,7 @@ func (j *jobFlags) request() (map[string]any, error) {
 		env[key] = value
 	}
 	if j.query != "" {
-		env["EPHEMERA_QUERY"] = j.query
+		env["AIRLOCK_QUERY"] = j.query
 	}
 
 	var secrets []map[string]string
@@ -287,7 +287,7 @@ func cmdGet(args []string) error {
 	}
 	id := fs.Arg(0)
 	if id == "" {
-		return errors.New("usage: ephemera get <job-id>")
+		return errors.New("usage: airlock get <job-id>")
 	}
 
 	client := newClient(c)
@@ -358,7 +358,7 @@ func cmdLogs(args []string) error {
 	}
 	id := fs.Arg(0)
 	if id == "" {
-		return errors.New("usage: ephemera logs <job-id>")
+		return errors.New("usage: airlock logs <job-id>")
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -380,7 +380,7 @@ func cmdArtifacts(args []string) error {
 	}
 	id := fs.Arg(0)
 	if id == "" {
-		return errors.New("usage: ephemera artifacts <job-id>")
+		return errors.New("usage: airlock artifacts <job-id>")
 	}
 
 	artifacts, err := newClient(c).artifacts(id)

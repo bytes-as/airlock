@@ -1,4 +1,4 @@
-// Command ephemera-agent is the placeholder "computer use" agent.
+// Command airlock-agent is the placeholder "computer use" agent.
 //
 // The agent is not the interesting part of this system; the infrastructure
 // wrapping it is. So this is deliberately a stand-in - it opens a "browser",
@@ -8,7 +8,7 @@
 //   - It reads its task from the environment the platform injected.
 //   - It streams progress to stdout as it works, so log streaming has something
 //     real to carry.
-//   - It writes artifacts into EPHEMERA_ARTIFACT_DIR, including a PNG, so the
+//   - It writes artifacts into AIRLOCK_ARTIFACT_DIR, including a PNG, so the
 //     artifact pipeline handles binary content and content types honestly.
 //   - It exits non-zero on failure, so the failure taxonomy is exercised.
 //   - It respects its own deadline, so it is a well-behaved citizen rather than
@@ -62,19 +62,19 @@ func finish(code int) {
 
 func main() {
 	var (
-		task      = flag.String("task", envOr("EPHEMERA_TASK", "search"), "task to perform")
-		query     = flag.String("query", envOr("EPHEMERA_QUERY", "ephemeral environments"), "search query")
-		steps     = flag.Int("steps", envIntOr("EPHEMERA_STEPS", 4), "simulated steps to perform")
-		stepDelay = flag.Duration("step-delay", envDurationOr("EPHEMERA_STEP_DELAY", 300*time.Millisecond), "pause between steps")
-		failAt    = flag.Int("fail-at", envIntOr("EPHEMERA_FAIL_AT", 0), "fail deliberately at this step (0 never)")
-		hang      = flag.Bool("hang", os.Getenv("EPHEMERA_HANG") == "1", "hang forever, to exercise the reaper")
-		browserTO = flag.Duration("browser-timeout", envDurationOr("EPHEMERA_BROWSER_TIMEOUT", 45*time.Second), "how long the browser may take to load the page and capture it")
+		task      = flag.String("task", envOr("AIRLOCK_TASK", "search"), "task to perform")
+		query     = flag.String("query", envOr("AIRLOCK_QUERY", "airlockl environments"), "search query")
+		steps     = flag.Int("steps", envIntOr("AIRLOCK_STEPS", 4), "simulated steps to perform")
+		stepDelay = flag.Duration("step-delay", envDurationOr("AIRLOCK_STEP_DELAY", 300*time.Millisecond), "pause between steps")
+		failAt    = flag.Int("fail-at", envIntOr("AIRLOCK_FAIL_AT", 0), "fail deliberately at this step (0 never)")
+		hang      = flag.Bool("hang", os.Getenv("AIRLOCK_HANG") == "1", "hang forever, to exercise the reaper")
+		browserTO = flag.Duration("browser-timeout", envDurationOr("AIRLOCK_BROWSER_TIMEOUT", 45*time.Second), "how long the browser may take to load the page and capture it")
 		showVer   = flag.Bool("version", false, "print version and exit")
 	)
 	flag.Parse()
 
 	if *showVer {
-		fmt.Printf("ephemera-agent %s\n", version)
+		fmt.Printf("airlock-agent %s\n", version)
 		return
 	}
 
@@ -91,13 +91,13 @@ func main() {
 		finish(143) // 128 + SIGTERM, the conventional shell encoding
 	}()
 
-	jobID := os.Getenv("EPHEMERA_JOB_ID")
-	tenant := os.Getenv("EPHEMERA_TENANT_ID")
-	artifactDir = os.Getenv("EPHEMERA_ARTIFACT_DIR")
+	jobID := os.Getenv("AIRLOCK_JOB_ID")
+	tenant := os.Getenv("AIRLOCK_TENANT_ID")
+	artifactDir = os.Getenv("AIRLOCK_ARTIFACT_DIR")
 	// Set only by drivers whose environment the control plane cannot read
 	// directly, which today means Fargate. Empty on the docker and process
 	// drivers, where uploadArtifacts is a no-op.
-	uploadURL = os.Getenv("EPHEMERA_ARTIFACT_UPLOAD_URL")
+	uploadURL = os.Getenv("AIRLOCK_ARTIFACT_UPLOAD_URL")
 
 	logf("agent %s starting", version)
 	// Say which mode this run is in, every run. A real capture and a generated
@@ -113,7 +113,7 @@ func main() {
 	if artifactDir == "" {
 		// Not fatal: a job may legitimately produce nothing. But say so, because
 		// silently producing no artifacts is indistinguishable from a bug.
-		logf("warning: EPHEMERA_ARTIFACT_DIR is not set; this run will produce no artifacts")
+		logf("warning: AIRLOCK_ARTIFACT_DIR is not set; this run will produce no artifacts")
 	} else if err := os.MkdirAll(artifactDir, 0o750); err != nil {
 		errorf("cannot create artifact directory: %v", err)
 		finish(1)
@@ -172,7 +172,7 @@ func writeArtifacts(dir, task, query string, steps int, budget time.Duration) er
 		"query":          query,
 		"steps":          steps,
 		"completed_at":   time.Now().UTC().Format(time.RFC3339),
-		"agent":          "ephemera-agent/" + version,
+		"agent":          "airlock-agent/" + version,
 		"screenshot_via": method,
 	}
 	encoded, err := json.MarshalIndent(result, "", "  ")

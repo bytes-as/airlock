@@ -28,7 +28,7 @@ data "aws_availability_zones" "available" {
 }
 
 locals {
-  name = "ephemera-${var.environment}"
+  name = "airlock-${var.environment}"
   azs  = slice(data.aws_availability_zones.available.names, 0, var.availability_zone_count)
 
   # /20 public and /20 private per AZ out of a /16. Generous for the subnet

@@ -88,7 +88,7 @@ data "archive_file" "reaper" {
                           ecs.stop_task(
                               cluster=CLUSTER,
                               task=arn,
-                              reason=f"ephemera reaper: exceeded {MAX_LIFETIME_MINUTES}m lifetime cap",
+                              reason=f"airlock reaper: exceeded {MAX_LIFETIME_MINUTES}m lifetime cap",
                           )
                           stopped.append({"task": arn, "age_minutes": round(age_minutes, 1)})
                       except Exception as exc:  # noqa: BLE001

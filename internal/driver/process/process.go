@@ -28,8 +28,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bytes-as/ephemera/internal/driver"
-	"github.com/bytes-as/ephemera/internal/job"
+	"github.com/bytes-as/airlock/internal/driver"
+	"github.com/bytes-as/airlock/internal/job"
 )
 
 // stateFile is the per-environment record on disk. It exists so List and
@@ -373,9 +373,9 @@ func buildEnv(spec driver.EnvSpec, dir string) []string {
 	}
 
 	env = append(env,
-		"EPHEMERA_JOB_ID="+spec.JobID,
-		"EPHEMERA_TENANT_ID="+spec.TenantID,
-		"EPHEMERA_ARTIFACT_DIR="+filepath.Join(dir, artifactDirName),
+		"AIRLOCK_JOB_ID="+spec.JobID,
+		"AIRLOCK_TENANT_ID="+spec.TenantID,
+		"AIRLOCK_ARTIFACT_DIR="+filepath.Join(dir, artifactDirName),
 	)
 	for k, v := range spec.Env {
 		env = append(env, k+"="+v)

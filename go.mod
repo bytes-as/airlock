@@ -1,4 +1,4 @@
-module github.com/bytes-as/ephemera
+module github.com/bytes-as/airlock
 
 go 1.27.0
 

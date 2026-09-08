@@ -1,7 +1,7 @@
 # Local deployment: the whole system, one command.
 #
 #   docker compose up --build
-#   ephemera run --image ephemera/agent:dev --query "ephemeral environments"
+#   airlock run --image airlock/agent:dev --query "airlockl environments"
 #
 # This is developer orchestration, NOT infrastructure as code. It consumes a
 # Docker daemon that already exists; it does not provision anything, has no
@@ -15,7 +15,7 @@
 # that could be mis-specified. The egress proxy is the only container bridging
 # `jobs` and `egress`, so it is the single, auditable way out.
 
-name: ephemera
+name: airlock
 
 services:
   control-plane:
@@ -23,34 +23,34 @@ services:
       context: .
       args:
         VERSION: ${VERSION:-dev}
-    image: ephemera/control-plane:${VERSION:-dev}
+    image: airlock/control-plane:${VERSION:-dev}
     ports:
-      - "${EPHEMERA_PORT:-8080}:8080"
+      - "${AIRLOCK_PORT:-8080}:8080"
     environment:
-      EPHEMERA_ADDR: ":8080"
+      AIRLOCK_ADDR: ":8080"
       # Mirrored host path - see the volumes section below for why this is not
       # simply "/data".
-      EPHEMERA_DATA_DIR: "${PWD}/data"
-      EPHEMERA_DRIVER: "docker"
-      EPHEMERA_WORKERS: "${EPHEMERA_WORKERS:-8}"
-      EPHEMERA_DOCKER_NETWORK: "ephemera_jobs"
-      EPHEMERA_EGRESS_PROXY: "http://egress-proxy:8888"
+      AIRLOCK_DATA_DIR: "${PWD}/data"
+      AIRLOCK_DRIVER: "docker"
+      AIRLOCK_WORKERS: "${AIRLOCK_WORKERS:-8}"
+      AIRLOCK_DOCKER_NETWORK: "airlock_jobs"
+      AIRLOCK_EGRESS_PROXY: "http://egress-proxy:8888"
       # Two egress points, so jobs rotate between them and the rotation is
       # something a reader can watch rather than take on trust. Both leave this
       # machine through the same address - rotating the *route* is what this
       # code does; having genuinely different addresses is infrastructure
       # (a NAT gateway per AZ, or a commercial pool) that a laptop cannot
       # provide. The region labels are honest stand-ins for that.
-      EPHEMERA_EGRESS_PROXY_POOL: "${EPHEMERA_EGRESS_PROXY_POOL:-eu=http://egress-proxy:8888,us=http://egress-proxy-b:8888}"
-      EPHEMERA_BASE_URL: "http://localhost:${EPHEMERA_PORT:-8080}"
+      AIRLOCK_EGRESS_PROXY_POOL: "${AIRLOCK_EGRESS_PROXY_POOL:-eu=http://egress-proxy:8888,us=http://egress-proxy-b:8888}"
+      AIRLOCK_BASE_URL: "http://localhost:${AIRLOCK_PORT:-8080}"
       # A stable key keeps artifact links valid across restarts. Generated per
       # run if unset, which is fine locally and wrong in production.
-      EPHEMERA_SIGNING_KEY: "${EPHEMERA_SIGNING_KEY:-}"
+      AIRLOCK_SIGNING_KEY: "${AIRLOCK_SIGNING_KEY:-}"
       # token=tenant pairs. Empty means no authentication, which the server
       # warns about loudly at startup.
-      EPHEMERA_TOKENS: "${EPHEMERA_TOKENS:-}"
-      EPHEMERA_LOG_FORMAT: "${EPHEMERA_LOG_FORMAT:-text}"
-      EPHEMERA_MAX_ENV_LIFETIME: "${EPHEMERA_MAX_ENV_LIFETIME:-1h}"
+      AIRLOCK_TOKENS: "${AIRLOCK_TOKENS:-}"
+      AIRLOCK_LOG_FORMAT: "${AIRLOCK_LOG_FORMAT:-text}"
+      AIRLOCK_MAX_ENV_LIFETIME: "${AIRLOCK_MAX_ENV_LIFETIME:-1h}"
     volumes:
       # The Docker socket is this container's entire authority, and it is a
       # large one: access to the socket is equivalent to root on the host,
@@ -85,9 +85,9 @@ services:
     # 0 is correct for Docker Desktop (macOS and Windows), where the socket
     # inside the VM is root:root. On Linux it is usually root:docker, so set
     # the group explicitly:
-    #   EPHEMERA_DOCKER_GID=$(stat -c '%g' /var/run/docker.sock) docker compose up
+    #   AIRLOCK_DOCKER_GID=$(stat -c '%g' /var/run/docker.sock) docker compose up
     group_add:
-      - "${EPHEMERA_DOCKER_GID:-0}"
+      - "${AIRLOCK_DOCKER_GID:-0}"
     networks:
       - control
       # Also on the jobs network so it can reach containers it creates.
@@ -95,13 +95,13 @@ services:
     restart: unless-stopped
     healthcheck:
       # Distroless has no shell and no curl, so the check runs the CLI we ship.
-      test: ["CMD", "/usr/local/bin/ephemera", "stats", "--server", "http://localhost:8080"]
+      test: ["CMD", "/usr/local/bin/airlock", "stats", "--server", "http://localhost:8080"]
       interval: 10s
       timeout: 5s
       retries: 3
       start_period: 5s
 
-  # Builds the agent image so `ephemera run --image ephemera/agent:dev` works
+  # Builds the agent image so `airlock run --image airlock/agent:dev` works
   # immediately. It exits straight away; it exists to produce the image, not to
   # run a service.
   agent-image:
@@ -110,7 +110,7 @@ services:
       dockerfile: Dockerfile.agent
       args:
         VERSION: ${VERSION:-dev}
-    image: ephemera/agent:${VERSION:-dev}
+    image: airlock/agent:${VERSION:-dev}
     command: ["--version"]
     restart: "no"
     networks:
@@ -130,7 +130,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.proxy
-    image: ephemera/egress-proxy:${VERSION:-dev}
+    image: airlock/egress-proxy:${VERSION:-dev}
     volumes:
       - ./deploy/compose/tinyproxy.conf:/etc/tinyproxy/tinyproxy.conf:ro
       - ./deploy/compose/filter:/etc/tinyproxy/filter:ro
@@ -145,7 +145,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.proxy
-    image: ephemera/egress-proxy:${VERSION:-dev}
+    image: airlock/egress-proxy:${VERSION:-dev}
     volumes:
       - ./deploy/compose/tinyproxy.conf:/etc/tinyproxy/tinyproxy.conf:ro
       - ./deploy/compose/filter:/etc/tinyproxy/filter:ro
@@ -162,7 +162,7 @@ networks:
   # Job containers live here. `internal: true` removes the route to the outside
   # world: this is the egress control, and it is structural.
   jobs:
-    name: ephemera_jobs
+    name: airlock_jobs
     driver: bridge
     internal: true
 

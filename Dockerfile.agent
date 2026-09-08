@@ -11,9 +11,9 @@
 #
 # The contract with the platform is entirely environmental and unchanged:
 #
-#   EPHEMERA_JOB_ID        the job this run belongs to
-#   EPHEMERA_TENANT_ID     the tenant it belongs to
-#   EPHEMERA_ARTIFACT_DIR  where to write outputs (collected after exit)
+#   AIRLOCK_JOB_ID        the job this run belongs to
+#   AIRLOCK_TENANT_ID     the tenant it belongs to
+#   AIRLOCK_ARTIFACT_DIR  where to write outputs (collected after exit)
 #   HTTP_PROXY/HTTPS_PROXY the only way out; passed to Chromium as
 #                          --proxy-server, which is what makes the platform's
 #                          egress rotation apply to real browser traffic
@@ -36,7 +36,7 @@ ARG VERSION=dev
 RUN CGO_ENABLED=0 go build \
         -trimpath \
         -ldflags "-s -w -X main.version=${VERSION}" \
-        -o /out/ephemera-agent ./cmd/ephemera-agent
+        -o /out/airlock-agent ./cmd/airlock-agent
 
 # --- runtime ---
 #
@@ -57,16 +57,16 @@ RUN apk add --no-cache \
 
 # The driver runs containers as 65534:65534 with a read-only root filesystem
 # and all capabilities dropped, so the agent must not assume it can write
-# anywhere except EPHEMERA_ARTIFACT_DIR and /tmp, both of which are writable
+# anywhere except AIRLOCK_ARTIFACT_DIR and /tmp, both of which are writable
 # mounts the platform provides.
 #
 # HOME points at /tmp because Chromium writes preference and crash state to it
 # whatever --user-data-dir says, and everything else is read-only.
 ENV HOME=/tmp \
-    EPHEMERA_BROWSER=chromium-browser
+    AIRLOCK_BROWSER=chromium-browser
 
-COPY --from=build /out/ephemera-agent /usr/local/bin/ephemera-agent
+COPY --from=build /out/airlock-agent /usr/local/bin/airlock-agent
 
 USER 65534:65534
 
-ENTRYPOINT ["/usr/local/bin/ephemera-agent"]
+ENTRYPOINT ["/usr/local/bin/airlock-agent"]

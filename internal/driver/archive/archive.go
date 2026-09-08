@@ -25,7 +25,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/bytes-as/ephemera/internal/driver"
+	"github.com/bytes-as/airlock/internal/driver"
 )
 
 // Extract unpacks a tar stream into dest.

@@ -156,10 +156,10 @@ jobs:
         # The cost guarantee, checked rather than claimed: the tests destroy
         # every environment they create, including on failure.
         run: |
-          leftover=$(docker ps -aq --filter "label=ephemera.managed=true" | wc -l)
-          echo "ephemera containers remaining: $leftover"
+          leftover=$(docker ps -aq --filter "label=airlock.managed=true" | wc -l)
+          echo "airlock containers remaining: $leftover"
           if [ "$leftover" != "0" ]; then
-            docker ps -a --filter "label=ephemera.managed=true"
+            docker ps -a --filter "label=airlock.managed=true"
             exit 1
           fi
 
@@ -181,7 +181,7 @@ jobs:
       # assertion.
       - name: 50 concurrent jobs
         run: |
-          ./bin/ephemerad --data-dir ./data --addr 127.0.0.1:8080 --workers 6 &
+          ./bin/airlockd --data-dir ./data --addr 127.0.0.1:8080 --workers 6 &
           DAEMON=$!
           trap 'kill $DAEMON 2>/dev/null || true' EXIT
 
@@ -190,7 +190,7 @@ jobs:
             sleep 1
           done
 
-          AGENT_COMMAND="$PWD/bin/ephemera-agent" \
+          AGENT_COMMAND="$PWD/bin/airlock-agent" \
             ./scripts/load-test.sh 50 http://127.0.0.1:8080
 
       - name: nothing left behind
@@ -273,7 +273,7 @@ jobs:
             CKV2_AWS_11,
             CKV2_AWS_57
           # --- storage and retention ---
-          # CKV_AWS_144  cross-region replication - artifacts are ephemeral and
+          # CKV_AWS_144  cross-region replication - artifacts are airlockl and
           #              expire in 30 days; replication would double storage cost
           #              for data with no recovery value.
           # CKV_AWS_18   access logging - would need a second bucket and its own
@@ -316,7 +316,7 @@ jobs:
           # CKV2_AWS_57  automatic secret rotation - rotating the artifact URL
           #              signing key invalidates every outstanding artifact
           #              link. That is a deliberate property, not an oversight:
-          #              see the note on EPHEMERA_SIGNING_KEY in the runbook.
+          #              see the note on AIRLOCK_SIGNING_KEY in the runbook.
 
   security:
     name: dependency and code scan
@@ -354,7 +354,7 @@ jobs:
         with:
           context: .
           push: false
-          tags: ephemera/control-plane:ci
+          tags: airlock/control-plane:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -364,7 +364,7 @@ jobs:
           context: .
           file: Dockerfile.agent
           push: false
-          tags: ephemera/agent:ci
+          tags: airlock/agent:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -378,6 +378,6 @@ jobs:
           context: .
           file: Dockerfile.proxy
           push: false
-          tags: ephemera/egress-proxy:ci
+          tags: airlock/egress-proxy:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max

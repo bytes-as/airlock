@@ -20,13 +20,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bytes-as/ephemera/internal/admission"
-	"github.com/bytes-as/ephemera/internal/artifact"
-	"github.com/bytes-as/ephemera/internal/driver"
-	"github.com/bytes-as/ephemera/internal/job"
-	"github.com/bytes-as/ephemera/internal/logstream"
-	"github.com/bytes-as/ephemera/internal/queue"
-	"github.com/bytes-as/ephemera/internal/secrets"
+	"github.com/bytes-as/airlock/internal/admission"
+	"github.com/bytes-as/airlock/internal/artifact"
+	"github.com/bytes-as/airlock/internal/driver"
+	"github.com/bytes-as/airlock/internal/job"
+	"github.com/bytes-as/airlock/internal/logstream"
+	"github.com/bytes-as/airlock/internal/queue"
+	"github.com/bytes-as/airlock/internal/secrets"
 )
 
 // Config tunes the scheduler.
@@ -554,8 +554,8 @@ func (s *Scheduler) buildEnvSpec(ctx context.Context, j *job.Job) (driver.EnvSpe
 			EgressRegion: j.Spec.EgressRegion,
 		},
 		Labels: map[string]string{
-			"ephemera.job":    j.ID,
-			"ephemera.tenant": j.TenantID,
+			"airlock.job":    j.ID,
+			"airlock.tenant": j.TenantID,
 		},
 	}, nil
 }
@@ -751,7 +751,7 @@ type Stats struct {
 // partial collection must not become a partial set of "stored" artifacts that
 // an operator then trusts as complete.
 func stagingDir(jobID string) (string, error) {
-	dir, err := os.MkdirTemp("", "ephemera-artifacts-"+sanitiseForPath(jobID)+"-*")
+	dir, err := os.MkdirTemp("", "airlock-artifacts-"+sanitiseForPath(jobID)+"-*")
 	if err != nil {
 		return "", fmt.Errorf("scheduler: create artifact staging dir: %w", err)
 	}

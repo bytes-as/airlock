@@ -1,4 +1,4 @@
-# ephemera — Runbook
+# airlock — Runbook
 
 Every command needed to build, run, test, deploy and tear down this system.
 
@@ -12,7 +12,7 @@ else. Commands are copy-pasteable in order.
 
 ```bash
 docker compose up --build -d                      # start everything
-make build && ./bin/ephemera run --image ephemera/agent:dev --query "hello"
+make build && ./bin/airlock run --image airlock/agent:dev --query "hello"
 docker compose down -v                            # stop everything
 ```
 
@@ -24,9 +24,9 @@ captured. Nothing else to install, no cloud account.
 
 | Claim | Command |
 |---|---|
-| Runs a job end to end | `./bin/ephemera run --image ephemera/agent:dev --query "hello"` |
-| One throwaway container per job | `docker ps --filter "label=ephemera.managed=true"` while a job runs |
-| Handles 50 at once | `AGENT_IMAGE=ephemera/agent:dev ./scripts/load-test.sh 50 http://localhost:8080` |
+| Runs a job end to end | `./bin/airlock run --image airlock/agent:dev --query "hello"` |
+| One throwaway container per job | `docker ps --filter "label=airlock.managed=true"` while a job runs |
+| Handles 50 at once | `AGENT_IMAGE=airlock/agent:dev ./scripts/load-test.sh 50 http://localhost:8080` |
 | Agents cannot reach cloud metadata | [Prove the egress control](#prove-the-egress-control-the-security-claim) |
 | Tenants cannot read each other's files | `go test -tags docker ./internal/driver/docker/ -run CannotSeeEachOthers -v` |
 | Egress rotates across proxies | `go test -tags docker ./internal/driver/docker/ -run EgressRotationReaches -v` |
@@ -65,8 +65,8 @@ captured. Nothing else to install, no cloud account.
 Clone over HTTPS (no SSH key required):
 
 ```bash
-git clone https://github.com/bytes-as/ephemera.git
-cd ephemera
+git clone https://github.com/bytes-as/airlock.git
+cd airlock
 ```
 
 ---
@@ -80,11 +80,11 @@ The fastest path. Needs **only Go** — no Docker, no cloud account, no services
 make build
 
 # 2. Start the control plane in the background
-./bin/ephemerad --data-dir ./data &
+./bin/airlockd --data-dir ./data &
 
 # 3. Submit a job and watch it run
-./bin/ephemera run \
-  --command "$PWD/bin/ephemera-agent" \
+./bin/airlock run \
+  --command "$PWD/bin/airlock-agent" \
   --query "site reliability"
 ```
 
@@ -154,8 +154,8 @@ docker compose ps
 
 ```
 NAME                       STATUS                   PORTS
-ephemera-control-plane-1   Up 10 seconds (healthy)  0.0.0.0:8080->8080/tcp
-ephemera-egress-proxy-1    Up 10 seconds            8888/tcp
+airlock-control-plane-1   Up 10 seconds (healthy)  0.0.0.0:8080->8080/tcp
+airlock-egress-proxy-1    Up 10 seconds            8888/tcp
 ```
 
 > **Linux users, one extra step.** The control plane needs to reach the Docker
@@ -163,7 +163,7 @@ ephemera-egress-proxy-1    Up 10 seconds            8888/tcp
 > the stack like this instead:
 >
 > ```bash
-> EPHEMERA_DOCKER_GID=$(stat -c '%g' /var/run/docker.sock) docker compose up --build -d
+> AIRLOCK_DOCKER_GID=$(stat -c '%g' /var/run/docker.sock) docker compose up --build -d
 > ```
 >
 > On macOS and Windows the default is already correct.
@@ -171,8 +171,8 @@ ephemera-egress-proxy-1    Up 10 seconds            8888/tcp
 ### Run a job in a real container
 
 ```bash
-./bin/ephemera run \
-  --image ephemera/agent:dev \
+./bin/airlock run \
+  --image airlock/agent:dev \
   --query "distributed systems" \
   --server http://localhost:8080
 ```
@@ -190,23 +190,23 @@ saved screenshot.png (via browser) and result.json
 
 `result.json` records `"screenshot_via": "browser"`, so an artifact can always
 be traced back to how it was produced. Point the agent elsewhere with
-`EPHEMERA_URL`.
+`AIRLOCK_URL`.
 
 Watch the per-job container appear and disappear while a job runs:
 
 ```bash
-watch -n0.5 'docker ps --filter "label=ephemera.managed=true" --format "{{.Names}} {{.Status}}"'
+watch -n0.5 'docker ps --filter "label=airlock.managed=true" --format "{{.Names}} {{.Status}}"'
 ```
 
 ### Prove the egress control (the security claim)
 
 ```bash
 # Cloud metadata must be unreachable from the jobs network.
-docker run --rm --network ephemera_jobs alpine:3.19 \
+docker run --rm --network airlock_jobs alpine:3.19 \
   sh -c 'wget -q -T 3 -O - http://169.254.169.254/ 2>&1 || echo BLOCKED-GOOD'
 
 # And there is no direct route to the internet at all.
-docker run --rm --network ephemera_jobs alpine:3.19 \
+docker run --rm --network airlock_jobs alpine:3.19 \
   sh -c 'wget -q -T 3 -O /dev/null http://example.com 2>&1 || echo NO-ROUTE-GOOD'
 ```
 
@@ -221,25 +221,25 @@ recompile, no code to edit.
 **One proxy — everything goes through it:**
 
 ```bash
-EPHEMERA_EGRESS_PROXY="http://user:pass@your-proxy.example:8080" \
+AIRLOCK_EGRESS_PROXY="http://user:pass@your-proxy.example:8080" \
   docker compose up --build -d
 ```
 
 **A pool — jobs rotate across them, round-robin:**
 
 ```bash
-EPHEMERA_EGRESS_PROXY_POOL="http://p1.example:8080,http://p2.example:8080,http://p3.example:8080" \
+AIRLOCK_EGRESS_PROXY_POOL="http://p1.example:8080,http://p2.example:8080,http://p3.example:8080" \
   docker compose up --build -d
 ```
 
 **A pool with locations — so a job can ask to appear somewhere:**
 
 ```bash
-EPHEMERA_EGRESS_PROXY_POOL="eu=http://eu.example:8080,us=http://us.example:8080" \
+AIRLOCK_EGRESS_PROXY_POOL="eu=http://eu.example:8080,us=http://us.example:8080" \
   docker compose up --build -d
 
 # then pin one job to a location:
-./bin/ephemera run --image ephemera/agent:dev --query "hello" --egress-region eu
+./bin/airlock run --image airlock/agent:dev --query "hello" --egress-region eu
 ```
 
 Format is `url` or `region=url`, comma-separated. Credentials go in the URL.
@@ -256,7 +256,7 @@ captured screenshot.png (22008 bytes) from https://example.com/?q=hello
 from somewhere else:
 
 ```bash
-./bin/ephemera run --image ephemera/agent:dev --egress-region antarctica
+./bin/airlock run --image airlock/agent:dev --egress-region antarctica
 ```
 
 ```
@@ -296,7 +296,7 @@ in the same paths and must find nothing.
 ### Behaviour under load: 50 concurrent jobs
 
 ```bash
-AGENT_IMAGE=ephemera/agent:dev ./scripts/load-test.sh 50 http://localhost:8080
+AGENT_IMAGE=airlock/agent:dev ./scripts/load-test.sh 50 http://localhost:8080
 ```
 
 **What you should see** — everything admitted, everything finished, nothing
@@ -318,7 +318,7 @@ queue drained, nothing left running
 ### Confirm nothing leaked
 
 ```bash
-docker ps -aq --filter "label=ephemera.managed=true" | wc -l   # want 0
+docker ps -aq --filter "label=airlock.managed=true" | wc -l   # want 0
 ls -1 ./data/environments | wc -l                              # want 0
 ```
 
@@ -339,7 +339,7 @@ Run `make help` to list these at any time.
 
 | Command | What it does |
 |---|---|
-| `make build` | Builds `ephemerad` (control plane), `ephemera` (CLI) and `ephemera-agent` into `./bin`. |
+| `make build` | Builds `airlockd` (control plane), `airlock` (CLI) and `airlock-agent` into `./bin`. |
 | `make run` | Builds, then runs the control plane with the `process` driver and debug logging. |
 | `make demo` | Runs one job end to end against a control plane you already started. |
 | `make clean` | Deletes `./bin` and `./data`. |
@@ -372,53 +372,53 @@ Run `make help` to list these at any time.
 
 ### The control plane's own flags
 
-`./bin/ephemerad --help` prints all of them. The ones that matter:
+`./bin/airlockd --help` prints all of them. The ones that matter:
 
 | Flag | Env var | Default | Meaning |
 |---|---|---|---|
-| `--addr` | `EPHEMERA_ADDR` | `:8080` | Address the HTTP API listens on. |
-| `--data-dir` | `EPHEMERA_DATA_DIR` | `./data` | Where the queue, artifacts and environments live. |
-| `--driver` | `EPHEMERA_DRIVER` | `process` | `process`, `docker` or `fargate`. |
-| `--workers` | `EPHEMERA_WORKERS` | `8` | Jobs that may run simultaneously. |
-| `--queue-depth` | `EPHEMERA_QUEUE_DEPTH` | `1000` | Queued jobs before submissions are refused with 503. |
-| `--provision-timeout` | `EPHEMERA_PROVISION_TIMEOUT` | `2m` | How long an environment may take to provision and start before the job fails. Stops a wedged driver from stranding a worker permanently. |
-| `--max-env-lifetime` | `EPHEMERA_MAX_ENV_LIFETIME` | `1h` | Hard cap. No environment outlives this, whatever else breaks. |
-| `--default-deadline` | `EPHEMERA_DEFAULT_DEADLINE` | `5m` | Deadline for jobs that request none. |
-| `--tokens` | `EPHEMERA_TOKENS` | *(empty)* | `token=tenant` pairs. **Empty means no authentication.** |
-| `--signing-key` | `EPHEMERA_SIGNING_KEY` | *(generated)* | Key for artifact links. Generated per run if unset, which invalidates old links on restart. |
+| `--addr` | `AIRLOCK_ADDR` | `:8080` | Address the HTTP API listens on. |
+| `--data-dir` | `AIRLOCK_DATA_DIR` | `./data` | Where the queue, artifacts and environments live. |
+| `--driver` | `AIRLOCK_DRIVER` | `process` | `process`, `docker` or `fargate`. |
+| `--workers` | `AIRLOCK_WORKERS` | `8` | Jobs that may run simultaneously. |
+| `--queue-depth` | `AIRLOCK_QUEUE_DEPTH` | `1000` | Queued jobs before submissions are refused with 503. |
+| `--provision-timeout` | `AIRLOCK_PROVISION_TIMEOUT` | `2m` | How long an environment may take to provision and start before the job fails. Stops a wedged driver from stranding a worker permanently. |
+| `--max-env-lifetime` | `AIRLOCK_MAX_ENV_LIFETIME` | `1h` | Hard cap. No environment outlives this, whatever else breaks. |
+| `--default-deadline` | `AIRLOCK_DEFAULT_DEADLINE` | `5m` | Deadline for jobs that request none. |
+| `--tokens` | `AIRLOCK_TOKENS` | *(empty)* | `token=tenant` pairs. **Empty means no authentication.** |
+| `--signing-key` | `AIRLOCK_SIGNING_KEY` | *(generated)* | Key for artifact links. Generated per run if unset, which invalidates old links on restart. |
 
 Docker driver only:
 
 | Flag | Env var | Meaning |
 |---|---|---|
-| `--docker-network` | `EPHEMERA_DOCKER_NETWORK` | Network job containers join. Use an `internal` network for egress control. |
-| `--egress-proxy` | `EPHEMERA_EGRESS_PROXY` | Proxy URL injected into jobs on an internal network. |
-| `--egress-proxy-pool` | `EPHEMERA_EGRESS_PROXY_POOL` | Egress points to rotate jobs across, `url` or `region=url`, comma-separated. e.g. `eu=http://p-eu:8888,us=http://p-us:8888` |
+| `--docker-network` | `AIRLOCK_DOCKER_NETWORK` | Network job containers join. Use an `internal` network for egress control. |
+| `--egress-proxy` | `AIRLOCK_EGRESS_PROXY` | Proxy URL injected into jobs on an internal network. |
+| `--egress-proxy-pool` | `AIRLOCK_EGRESS_PROXY_POOL` | Egress points to rotate jobs across, `url` or `region=url`, comma-separated. e.g. `eu=http://p-eu:8888,us=http://p-us:8888` |
 
 See [Use your own proxy, and rotate egress IPs](#use-your-own-proxy-and-rotate-egress-ips) for copy-paste examples.
-| `--pull-policy` | `EPHEMERA_PULL_POLICY` | `always`, `if-missing` or `never`. |
+| `--pull-policy` | `AIRLOCK_PULL_POLICY` | `always`, `if-missing` or `never`. |
 
 Fargate driver only — all of these come from Terraform outputs (Part 5):
 
 | Flag | Env var | Meaning |
 |---|---|---|
-| `--ecs-cluster` | `EPHEMERA_ECS_CLUSTER` | ECS cluster name. |
-| `--job-task-definition` | `EPHEMERA_JOB_TASK_DEFINITION` | Task definition family for jobs. |
-| `--subnets` | `EPHEMERA_SUBNETS` | Comma-separated subnet IDs. |
-| `--security-groups` | `EPHEMERA_SECURITY_GROUP` | Comma-separated security group IDs. |
-| `--artifact-bucket` | `EPHEMERA_ARTIFACT_BUCKET` | S3 bucket agents upload artifacts to. |
-| `--job-log-group` | `EPHEMERA_JOB_LOG_GROUP` | CloudWatch Logs group job output goes to. |
+| `--ecs-cluster` | `AIRLOCK_ECS_CLUSTER` | ECS cluster name. |
+| `--job-task-definition` | `AIRLOCK_JOB_TASK_DEFINITION` | Task definition family for jobs. |
+| `--subnets` | `AIRLOCK_SUBNETS` | Comma-separated subnet IDs. |
+| `--security-groups` | `AIRLOCK_SECURITY_GROUP` | Comma-separated security group IDs. |
+| `--artifact-bucket` | `AIRLOCK_ARTIFACT_BUCKET` | S3 bucket agents upload artifacts to. |
+| `--job-log-group` | `AIRLOCK_JOB_LOG_GROUP` | CloudWatch Logs group job output goes to. |
 
 ### The CLI
 
 ```bash
-./bin/ephemera run    --command <path> | --image <image> [--query <text>]  # submit and follow
-./bin/ephemera run    --image <image> --egress-region eu                   # pin egress location
-./bin/ephemera submit --image <image>                                      # submit, do not wait
-./bin/ephemera logs   <job-id>                                             # stream logs
-./bin/ephemera get    <job-id>                                             # job status
-./bin/ephemera list   [--state succeeded|failed|running]                   # list jobs
-./bin/ephemera stats                                                       # queue and worker state
+./bin/airlock run    --command <path> | --image <image> [--query <text>]  # submit and follow
+./bin/airlock run    --image <image> --egress-region eu                   # pin egress location
+./bin/airlock submit --image <image>                                      # submit, do not wait
+./bin/airlock logs   <job-id>                                             # stream logs
+./bin/airlock get    <job-id>                                             # job status
+./bin/airlock list   [--state succeeded|failed|running]                   # list jobs
+./bin/airlock stats                                                       # queue and worker state
 ```
 
 All accept `--server <url>` (default `http://localhost:8080`) and
@@ -430,7 +430,7 @@ All accept `--server <url>` (default `http://localhost:8080`) and
 # Submit
 curl -X POST http://localhost:8080/v1/jobs \
   -H 'Content-Type: application/json' \
-  -d '{"image":"ephemera/agent:dev","env":{"EPHEMERA_QUERY":"hello"},"priority":"normal"}'
+  -d '{"image":"airlock/agent:dev","env":{"AIRLOCK_QUERY":"hello"},"priority":"normal"}'
 
 # Status, logs (server-sent events), artifacts
 curl http://localhost:8080/v1/jobs/<job-id>
@@ -570,7 +570,7 @@ Then restart the service so it picks the key up:
 ```bash
 aws ecs update-service \
   --cluster "$(terraform output -raw cluster_name)" \
-  --service ephemera-control-plane \
+  --service airlock-control-plane \
   --force-new-deployment
 ```
 
@@ -580,11 +580,11 @@ aws ecs update-service \
 CLUSTER=$(terraform output -raw cluster_name)
 
 # Is the service running its task?
-aws ecs describe-services --cluster "$CLUSTER" --services ephemera-control-plane \
+aws ecs describe-services --cluster "$CLUSTER" --services airlock-control-plane \
   --query 'services[0].{running:runningCount,desired:desiredCount,status:status}'
 
 # What is the control plane saying?
-aws logs tail /ephemera/dev/control-plane --follow
+aws logs tail /airlock/dev/control-plane --follow
 ```
 
 **You want** `msg=ready ... driver=fargate`. Anything else — see
@@ -596,7 +596,7 @@ The control plane sits in a private subnet with no public endpoint, which is
 deliberate. Reach it with a port-forward through ECS Exec:
 
 ```bash
-TASK=$(aws ecs list-tasks --cluster "$CLUSTER" --service-name ephemera-control-plane \
+TASK=$(aws ecs list-tasks --cluster "$CLUSTER" --service-name airlock-control-plane \
   --query 'taskArns[0]' --output text)
 
 aws ecs execute-command --cluster "$CLUSTER" --task "$TASK" \
@@ -617,28 +617,28 @@ as real Fargate tasks.
 cd deploy/terraform
 
 export AWS_REGION=$(terraform output -raw region 2>/dev/null || echo "$AWS_REGION")
-export EPHEMERA_DRIVER=fargate
-export EPHEMERA_ECS_CLUSTER=$(terraform output -raw cluster_name)
-export EPHEMERA_JOB_TASK_DEFINITION=ephemera-dev-job
-export EPHEMERA_SUBNETS=$(terraform output -json private_subnet_ids | tr -d '[]" ' )
-export EPHEMERA_SECURITY_GROUP=$(terraform output -raw job_security_group_id)
-export EPHEMERA_ARTIFACT_BUCKET=$(terraform output -raw artifact_bucket)
-export EPHEMERA_JOB_LOG_GROUP=/ephemera/dev/jobs
+export AIRLOCK_DRIVER=fargate
+export AIRLOCK_ECS_CLUSTER=$(terraform output -raw cluster_name)
+export AIRLOCK_JOB_TASK_DEFINITION=airlock-dev-job
+export AIRLOCK_SUBNETS=$(terraform output -json private_subnet_ids | tr -d '[]" ' )
+export AIRLOCK_SECURITY_GROUP=$(terraform output -raw job_security_group_id)
+export AIRLOCK_ARTIFACT_BUCKET=$(terraform output -raw artifact_bucket)
+export AIRLOCK_JOB_LOG_GROUP=/airlock/dev/jobs
 
 cd ../..
-./bin/ephemerad --data-dir ./data
+./bin/airlockd --data-dir ./data
 ```
 
 Then, in another terminal:
 
 ```bash
-./bin/ephemera run --query "hello from fargate"
+./bin/airlock run --query "hello from fargate"
 ```
 
 Watch the task appear:
 
 ```bash
-aws ecs list-tasks --cluster "$EPHEMERA_ECS_CLUSTER" --started-by ephemera
+aws ecs list-tasks --cluster "$AIRLOCK_ECS_CLUSTER" --started-by airlock
 ```
 
 ### 5.10 Confirm nothing was left behind
@@ -646,7 +646,7 @@ aws ecs list-tasks --cluster "$EPHEMERA_ECS_CLUSTER" --started-by ephemera
 The cost guarantee, checked:
 
 ```bash
-aws ecs list-tasks --cluster "$CLUSTER" --started-by ephemera --desired-status RUNNING
+aws ecs list-tasks --cluster "$CLUSTER" --started-by airlock --desired-status RUNNING
 ```
 
 Should be empty once your jobs have finished. If it is not, the reaper's
@@ -677,10 +677,10 @@ Confirm nothing survives:
 ```bash
 aws ecs list-clusters
 aws ec2 describe-nat-gateways --filter "Name=state,Values=available"
-aws s3 ls | grep ephemera
+aws s3 ls | grep airlock
 ```
 
-All three should be empty of ephemera resources. **A NAT gateway left running
+All three should be empty of airlock resources. **A NAT gateway left running
 is the single most expensive mistake available here.**
 
 ---
@@ -706,7 +706,7 @@ The image runs as uid 65532 and the data directory is owned by someone else.
 You are on Linux. Start with the socket's group:
 
 ```bash
-EPHEMERA_DOCKER_GID=$(stat -c '%g' /var/run/docker.sock) docker compose up -d
+AIRLOCK_DOCKER_GID=$(stat -c '%g' /var/run/docker.sock) docker compose up -d
 ```
 
 **Jobs fail with `start_failed` / "mounts denied"**
@@ -721,9 +721,9 @@ File Sharing, add the path, restart Docker.
 **Port 8080 already in use**
 
 ```bash
-EPHEMERA_PORT=8081 docker compose up -d
+AIRLOCK_PORT=8081 docker compose up -d
 # or, locally:
-./bin/ephemerad --addr :8081
+./bin/airlockd --addr :8081
 ```
 
 ### AWS
@@ -746,8 +746,8 @@ push.
 
 **Control plane starts but every job fails immediately**
 
-Read `/ephemera/dev/control-plane`. The most likely causes are a missing
-`EPHEMERA_JOB_LOG_GROUP`, subnets that cannot reach ECR, or a task definition
+Read `/airlock/dev/control-plane`. The most likely causes are a missing
+`AIRLOCK_JOB_LOG_GROUP`, subnets that cannot reach ECR, or a task definition
 family name that does not match.
 
 **Jobs run but no logs appear**

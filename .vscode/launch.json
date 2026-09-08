@@ -8,7 +8,7 @@
       "type": "go",
       "request": "launch",
       "mode": "debug",
-      "program": "${workspaceFolder}/cmd/ephemerad",
+      "program": "${workspaceFolder}/cmd/airlockd",
       "args": ["--data-dir", "${workspaceFolder}/data", "--log-level", "debug"]
     },
     {
@@ -16,7 +16,7 @@
       "type": "go",
       "request": "launch",
       "mode": "debug",
-      "program": "${workspaceFolder}/cmd/ephemerad",
+      "program": "${workspaceFolder}/cmd/airlockd",
       "args": [
         "--data-dir", "${workspaceFolder}/data",
         "--driver", "docker",
@@ -28,8 +28,8 @@
       "type": "go",
       "request": "launch",
       "mode": "debug",
-      "program": "${workspaceFolder}/cmd/ephemera-agent",
-      "env": { "EPHEMERA_ARTIFACT_DIR": "${workspaceFolder}/data/agent-out" }
+      "program": "${workspaceFolder}/cmd/airlock-agent",
+      "env": { "AIRLOCK_ARTIFACT_DIR": "${workspaceFolder}/data/agent-out" }
     },
     {
       // Attaches to whichever test the cursor is in.

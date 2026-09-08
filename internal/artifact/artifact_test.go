@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bytes-as/ephemera/internal/driver"
+	"github.com/bytes-as/airlock/internal/driver"
 )
 
 var base = time.Date(2026, 9, 8, 12, 0, 0, 0, time.UTC)

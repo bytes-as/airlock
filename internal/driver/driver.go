@@ -17,10 +17,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/bytes-as/ephemera/internal/job"
+	"github.com/bytes-as/airlock/internal/job"
 )
 
-// Driver provisions and manages ephemeral execution environments.
+// Driver provisions and manages airlockl execution environments.
 //
 // Implementations must be safe for concurrent use: the scheduler calls into a
 // single Driver from every worker goroutine.

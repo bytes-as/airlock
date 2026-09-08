@@ -1,4 +1,4 @@
-# ephemera
+# airlock
 
 A control plane that runs untrusted work in disposable environments, then
 proves the environment is gone.
@@ -35,7 +35,7 @@ flowchart TB
     DRV --> DOCK["docker<br/>container + egress control"]
     DRV --> FARG["fargate<br/>written, never executed"]
 
-    PROC & DOCK & FARG --> ENV["Ephemeral environment"]
+    PROC & DOCK & FARG --> ENV["Airlockl environment"]
 
     ENV --> LOGS["Log stream<br/>SSE, live + replay"]
     ENV --> ART["Artifacts<br/>HMAC-signed URLs"]
@@ -70,8 +70,8 @@ Nothing to install but Go. No cloud account, no daemon, no services.
 
 ```bash
 make build
-./bin/ephemerad --data-dir ./data &        # control plane
-./bin/ephemera run --command "$PWD/bin/ephemera-agent" --query "site reliability"
+./bin/airlockd --data-dir ./data &        # control plane
+./bin/airlock run --command "$PWD/bin/airlock-agent" --query "site reliability"
 ```
 
 That submits a job, streams its logs live, waits for it, and prints signed
@@ -105,7 +105,7 @@ artifacts:
 
 ```bash
 docker compose up --build -d
-ephemera run --image ephemera/agent:dev --query "distributed systems"
+airlock run --image airlock/agent:dev --query "distributed systems"
 ```
 
 **Behaviour under load**, answered with numbers rather than an assertion:
@@ -215,7 +215,7 @@ A job may then ask to appear somewhere specific, and **a request for a region
 the pool cannot serve is refused** rather than quietly egressed from wherever is
 convenient — a caller who asked for Frankfurt, silently got Virginia, and
 believed the result has been given something worse than an error. The selected
-region is injected as `EPHEMERA_EGRESS_REGION` so a run's own logs record where
+region is injected as `AIRLOCK_EGRESS_REGION` so a run's own logs record where
 it went out.
 
 Round-robin rather than random, because with a small pool random selection
@@ -307,7 +307,7 @@ Three layers, each covering the previous one's failure mode:
 
 ```mermaid
 flowchart TB
-    ENV["Ephemeral environment<br/>costs money every second it lives"]
+    ENV["Airlockl environment<br/>costs money every second it lives"]
 
     L1["Layer 1 — deadline<br/>inside the environment"]
     L2["Layer 2 — sweeper<br/>inside the control plane"]
@@ -707,9 +707,9 @@ per spec fingerprint would slot in above the driver without changing it.
 | `internal/logstream` | live fan-out |
 | `internal/artifact` | storage and signed URLs |
 | `internal/api` | HTTP surface |
-| `cmd/ephemerad` | control plane; the composition root, read it first |
-| `cmd/ephemera` | CLI |
-| `cmd/ephemera-agent` | placeholder agent |
+| `cmd/airlockd` | control plane; the composition root, read it first |
+| `cmd/airlock` | CLI |
+| `cmd/airlock-agent` | placeholder agent |
 | `deploy/terraform` | the IaC deliverable, layer-3 reaper included |
 | `docs/` | runbook, architecture and security notes |
 

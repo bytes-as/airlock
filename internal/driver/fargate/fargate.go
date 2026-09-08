@@ -58,25 +58,25 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
 
-	"github.com/bytes-as/ephemera/internal/driver"
-	"github.com/bytes-as/ephemera/internal/driver/archive"
+	"github.com/bytes-as/airlock/internal/driver"
+	"github.com/bytes-as/airlock/internal/driver/archive"
 )
 
 // Tag keys applied to every task, so environments stay identifiable as ours
 // after the control plane that created them is gone. ECS tags, unlike Docker
 // labels, are also what the cost explorer groups by.
 const (
-	TagManaged = "ephemera:managed"
-	TagJob     = "ephemera:job"
-	TagTenant  = "ephemera:tenant"
-	TagExpires = "ephemera:expires-at"
+	TagManaged = "airlock:managed"
+	TagJob     = "airlock:job"
+	TagTenant  = "airlock:tenant"
+	TagExpires = "airlock:expires-at"
 )
 
 // startedBy is constant across every job task. ECS lets ListTasks filter on it
 // exactly (not by prefix), so a single shared value is what makes "list only
 // our job tasks" one API call rather than a scan. Per-job identity is carried
 // in tags. Max 36 characters, per the ECS API.
-const startedBy = "ephemera"
+const startedBy = "airlock"
 
 // artifactObjectKey is where the agent uploads and Collect reads.
 func artifactObjectKey(jobID string) string { return "jobs/" + jobID + "/artifacts.tar" }
@@ -456,7 +456,7 @@ func (d *Driver) presignUpload(ctx context.Context, jobID string, deadline time.
 // control plane's own role - but a reader deploying this should know the
 // property they are relying on. The stronger answer is Secrets Manager
 // references in the task definition, which only works for values known before
-// the job exists, and ephemera resolves secrets per job at submit time.
+// the job exists, and airlock resolves secrets per job at submit time.
 func (d *Driver) buildEnvironment(spec driver.EnvSpec, uploadURL string) ([]ecstypes.KeyValuePair, error) {
 	merged := map[string]string{}
 	for k, v := range spec.Env {
@@ -467,12 +467,12 @@ func (d *Driver) buildEnvironment(spec driver.EnvSpec, uploadURL string) ([]ecst
 	if artifactDir == "" {
 		artifactDir = "/artifacts"
 	}
-	merged["EPHEMERA_ARTIFACT_DIR"] = artifactDir
-	merged["EPHEMERA_JOB_ID"] = spec.JobID
-	merged["EPHEMERA_TENANT_ID"] = spec.TenantID
+	merged["AIRLOCK_ARTIFACT_DIR"] = artifactDir
+	merged["AIRLOCK_JOB_ID"] = spec.JobID
+	merged["AIRLOCK_TENANT_ID"] = spec.TenantID
 	// The agent uploads here on exit. Its presence is also how the agent knows
 	// it is running somewhere without a filesystem the control plane can read.
-	merged["EPHEMERA_ARTIFACT_UPLOAD_URL"] = uploadURL
+	merged["AIRLOCK_ARTIFACT_UPLOAD_URL"] = uploadURL
 
 	if spec.Network.Mode == driver.NetworkProxied && spec.Network.ProxyURL != "" {
 		for _, k := range []string{"HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"} {
@@ -720,7 +720,7 @@ func (d *Driver) Logs(ctx context.Context, env driver.Env) (<-chan driver.LogLin
 					// silence would look identical to a quiet agent.
 					select {
 					case out <- driver.LogLine{At: time.Now().UTC(), Stream: driver.StreamStderr,
-						Text: "ephemera: log stream unreadable: " + err.Error()}:
+						Text: "airlock: log stream unreadable: " + err.Error()}:
 					case <-ctx.Done():
 					}
 					return
@@ -866,7 +866,7 @@ func (d *Driver) Destroy(ctx context.Context, env driver.Env) error {
 	_, err := d.ecs.StopTask(ctx, &ecs.StopTaskInput{
 		Cluster: aws.String(d.cfg.Cluster),
 		Task:    aws.String(env.ID),
-		Reason:  aws.String("ephemera: environment destroyed"),
+		Reason:  aws.String("airlock: environment destroyed"),
 	})
 	if err != nil {
 		// A task ECS has forgotten is a task that costs nothing, which is the

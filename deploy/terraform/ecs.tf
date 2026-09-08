@@ -42,12 +42,12 @@ resource "aws_ecs_cluster_capacity_providers" "main" {
 # --- logging ---
 
 resource "aws_cloudwatch_log_group" "jobs" {
-  name              = "/ephemera/${var.environment}/jobs"
+  name              = "/airlock/${var.environment}/jobs"
   retention_in_days = var.log_retention_days
 }
 
 resource "aws_cloudwatch_log_group" "control_plane" {
-  name              = "/ephemera/${var.environment}/control-plane"
+  name              = "/airlock/${var.environment}/control-plane"
   retention_in_days = var.log_retention_days
 }
 
@@ -96,7 +96,7 @@ resource "aws_ecs_task_definition" "job" {
       ]
 
       environment = [
-        { name = "EPHEMERA_ARTIFACT_DIR", value = "/artifacts" },
+        { name = "AIRLOCK_ARTIFACT_DIR", value = "/artifacts" },
       ]
 
       logConfiguration = {
@@ -117,7 +117,7 @@ resource "aws_ecs_task_definition" "job" {
 
   volume {
     name = "artifacts"
-    # No configuration block means an ephemeral volume that lives and dies with
+    # No configuration block means an airlockl volume that lives and dies with
     # the task. The job's filesystem vanishing with the task is a guarantee of
     # the platform rather than something the control plane has to remember.
   }
@@ -153,19 +153,19 @@ resource "aws_ecs_task_definition" "control_plane" {
       ]
 
       environment = [
-        { name = "EPHEMERA_ADDR", value = ":8080" },
-        { name = "EPHEMERA_DRIVER", value = "fargate" },
-        { name = "EPHEMERA_LOG_FORMAT", value = "json" },
-        { name = "EPHEMERA_ECS_CLUSTER", value = aws_ecs_cluster.main.name },
-        { name = "EPHEMERA_JOB_TASK_DEFINITION", value = aws_ecs_task_definition.job.family },
-        { name = "EPHEMERA_ARTIFACT_BUCKET", value = aws_s3_bucket.artifacts.id },
+        { name = "AIRLOCK_ADDR", value = ":8080" },
+        { name = "AIRLOCK_DRIVER", value = "fargate" },
+        { name = "AIRLOCK_LOG_FORMAT", value = "json" },
+        { name = "AIRLOCK_ECS_CLUSTER", value = aws_ecs_cluster.main.name },
+        { name = "AIRLOCK_JOB_TASK_DEFINITION", value = aws_ecs_task_definition.job.family },
+        { name = "AIRLOCK_ARTIFACT_BUCKET", value = aws_s3_bucket.artifacts.id },
         # The log group the *job* task definition writes to. The control plane
         # reads job output from here; without it jobs run correctly and stream
         # nothing, which is a confusing way to fail.
-        { name = "EPHEMERA_JOB_LOG_GROUP", value = aws_cloudwatch_log_group.jobs.name },
-        { name = "EPHEMERA_SUBNETS", value = join(",", aws_subnet.private[*].id) },
-        { name = "EPHEMERA_SECURITY_GROUP", value = aws_security_group.job.id },
-        { name = "EPHEMERA_MAX_ENV_LIFETIME", value = "${var.max_job_lifetime_minutes}m" },
+        { name = "AIRLOCK_JOB_LOG_GROUP", value = aws_cloudwatch_log_group.jobs.name },
+        { name = "AIRLOCK_SUBNETS", value = join(",", aws_subnet.private[*].id) },
+        { name = "AIRLOCK_SECURITY_GROUP", value = aws_security_group.job.id },
+        { name = "AIRLOCK_MAX_ENV_LIFETIME", value = "${var.max_job_lifetime_minutes}m" },
       ]
 
       # The signing key comes from Secrets Manager, injected by the ECS agent
@@ -173,7 +173,7 @@ resource "aws_ecs_task_definition" "control_plane" {
       # which is readable by anyone with ecs:DescribeTaskDefinition.
       secrets = [
         {
-          name      = "EPHEMERA_SIGNING_KEY"
+          name      = "AIRLOCK_SIGNING_KEY"
           valueFrom = aws_secretsmanager_secret.signing_key.arn
         }
       ]
@@ -190,7 +190,7 @@ resource "aws_ecs_task_definition" "control_plane" {
       healthCheck = {
         # /readyz, not /healthz: readiness reflects whether the process can
         # actually serve, which is what should gate traffic.
-        command     = ["CMD", "/usr/local/bin/ephemera", "stats", "--server", "http://localhost:8080"]
+        command     = ["CMD", "/usr/local/bin/airlock", "stats", "--server", "http://localhost:8080"]
         interval    = 15
         timeout     = 5
         retries     = 3

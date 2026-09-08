@@ -18,13 +18,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bytes-as/ephemera/internal/admission"
-	"github.com/bytes-as/ephemera/internal/artifact"
-	"github.com/bytes-as/ephemera/internal/driver"
-	"github.com/bytes-as/ephemera/internal/job"
-	"github.com/bytes-as/ephemera/internal/logstream"
-	"github.com/bytes-as/ephemera/internal/queue"
-	"github.com/bytes-as/ephemera/internal/queue/embedded"
+	"github.com/bytes-as/airlock/internal/admission"
+	"github.com/bytes-as/airlock/internal/artifact"
+	"github.com/bytes-as/airlock/internal/driver"
+	"github.com/bytes-as/airlock/internal/job"
+	"github.com/bytes-as/airlock/internal/logstream"
+	"github.com/bytes-as/airlock/internal/queue"
+	"github.com/bytes-as/airlock/internal/queue/embedded"
 )
 
 // A real HTTP server over a real bbolt queue and a real artifact store on disk.
@@ -125,7 +125,7 @@ func decode[T any](t *testing.T, resp *http.Response) T {
 }
 
 func validSubmission() SubmitRequest {
-	return SubmitRequest{Image: "ephemera/agent:latest", Command: []string{"run"}}
+	return SubmitRequest{Image: "airlock/agent:latest", Command: []string{"run"}}
 }
 
 func TestSubmitAcceptsAndReturnsAJob(t *testing.T) {

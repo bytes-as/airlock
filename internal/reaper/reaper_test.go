@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bytes-as/ephemera/internal/driver"
-	"github.com/bytes-as/ephemera/internal/driver/process"
-	"github.com/bytes-as/ephemera/internal/job"
-	"github.com/bytes-as/ephemera/internal/queue/embedded"
+	"github.com/bytes-as/airlock/internal/driver"
+	"github.com/bytes-as/airlock/internal/driver/process"
+	"github.com/bytes-as/airlock/internal/job"
+	"github.com/bytes-as/airlock/internal/queue/embedded"
 )
 
 // Like the driver and scheduler tests, these run real environments: a real
@@ -21,7 +21,7 @@ import (
 // lifetime cap is not a test anyone runs twice.
 
 func TestHelperProcess(t *testing.T) {
-	if os.Getenv("EPHEMERA_TEST_HELPER") != "1" {
+	if os.Getenv("AIRLOCK_TEST_HELPER") != "1" {
 		return
 	}
 	time.Sleep(60 * time.Second)
@@ -80,7 +80,7 @@ func (f *fixture) createEnv(jobID string, deadline time.Duration) driver.Env {
 		JobID:    jobID,
 		TenantID: "tenant-a",
 		Command:  []string{os.Args[0], "-test.run=TestHelperProcess"},
-		Env:      map[string]string{"EPHEMERA_TEST_HELPER": "1"},
+		Env:      map[string]string{"AIRLOCK_TEST_HELPER": "1"},
 		Deadline: deadline,
 	}
 	env, err := f.driver.Create(context.Background(), spec)

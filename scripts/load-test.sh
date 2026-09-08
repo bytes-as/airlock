@@ -12,18 +12,18 @@
 #   ./scripts/load-test.sh [count] [server]
 #
 # Environment:
-#   EPHEMERA_TOKEN   bearer token, if the server requires one
+#   AIRLOCK_TOKEN   bearer token, if the server requires one
 #   AGENT_COMMAND    command to run as the agent (process driver)
 #   AGENT_IMAGE      image to run as the agent (docker driver)
 
 set -uo pipefail
 
 COUNT="${1:-50}"
-SERVER="${2:-${EPHEMERA_SERVER:-http://localhost:8080}}"
-TOKEN="${EPHEMERA_TOKEN:-}"
+SERVER="${2:-${AIRLOCK_SERVER:-http://localhost:8080}}"
+TOKEN="${AIRLOCK_TOKEN:-}"
 
 AGENT_IMAGE="${AGENT_IMAGE:-}"
-AGENT_COMMAND="${AGENT_COMMAND:-$(pwd)/bin/ephemera-agent}"
+AGENT_COMMAND="${AGENT_COMMAND:-$(pwd)/bin/airlock-agent}"
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -55,7 +55,7 @@ for i in $(seq 1 "$COUNT"); do
     response=$(curl -s -o "$WORK/body.$i" -w '%{http_code}' -X POST "$SERVER/v1/jobs" \
       ${auth[@]+"${auth[@]}"} \
       -H 'Content-Type: application/json' \
-      -d "{$spec,\"env\":{\"EPHEMERA_STEP_DELAY\":\"100ms\"},\"priority\":\"normal\"}")
+      -d "{$spec,\"env\":{\"AIRLOCK_STEP_DELAY\":\"100ms\"},\"priority\":\"normal\"}")
     echo "$response" > "$WORK/status.$i"
   ) &
 done

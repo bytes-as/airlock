@@ -21,8 +21,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bytes-as/ephemera/internal/driver"
-	"github.com/bytes-as/ephemera/internal/job"
+	"github.com/bytes-as/airlock/internal/driver"
+	"github.com/bytes-as/airlock/internal/job"
 )
 
 // testImage is small, present in most caches, and has a shell.
@@ -254,7 +254,7 @@ func TestIntegrationNoNetworkMeansNoNetwork(t *testing.T) {
 // on an internal network there is no route off the network, so the metadata
 // endpoint is unreachable by construction rather than by rule.
 func TestIntegrationInternalNetworkBlocksMetadata(t *testing.T) {
-	network := "ephemera-test-internal"
+	network := "airlock-test-internal"
 	d := newTestDriver(t, func(c *Config) { c.Network = network })
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
@@ -576,12 +576,12 @@ func TestIntegrationJobsCannotSeeEachOthersFilesystems(t *testing.T) {
 // the process's environment - by running two jobs and reading back what each
 // one saw.
 //
-// It uses the compose `ephemera_jobs` network when present, since proxied mode
+// It uses the compose `airlock_jobs` network when present, since proxied mode
 // requires a configured internal network, and skips otherwise rather than
 // pretending to have tested something.
 func TestIntegrationEgressRotationReachesTheContainer(t *testing.T) {
 	d := newTestDriver(t, func(cfg *Config) {
-		cfg.Network = "ephemera_jobs"
+		cfg.Network = "airlock_jobs"
 		cfg.ProxyPool = []EgressProxy{
 			{URL: "http://egress-proxy:8888", Region: "eu"},
 			{URL: "http://egress-proxy-b:8888", Region: "us"},

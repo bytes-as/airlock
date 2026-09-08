@@ -24,11 +24,11 @@ ARG VERSION=dev
 RUN CGO_ENABLED=0 go build \
         -trimpath \
         -ldflags "-s -w -X main.version=${VERSION}" \
-        -o /out/ephemerad ./cmd/ephemerad \
+        -o /out/airlockd ./cmd/airlockd \
     && CGO_ENABLED=0 go build \
         -trimpath \
         -ldflags "-s -w -X main.version=${VERSION}" \
-        -o /out/ephemera ./cmd/ephemera
+        -o /out/airlock ./cmd/airlock
 
 # An empty, correctly-owned /data to seed the runtime image with. Built here
 # because the distroless runtime has no shell to mkdir with.
@@ -37,8 +37,8 @@ RUN mkdir -p /data
 # --- runtime ---
 FROM gcr.io/distroless/static-debian12:nonroot
 
-COPY --from=build /out/ephemerad /usr/local/bin/ephemerad
-COPY --from=build /out/ephemera /usr/local/bin/ephemera
+COPY --from=build /out/airlockd /usr/local/bin/airlockd
+COPY --from=build /out/airlock /usr/local/bin/airlock
 
 # nonroot (uid 65532) comes from the base image. The control plane needs no
 # privileges of its own; the Docker socket it is given is the whole of its
@@ -59,7 +59,7 @@ USER nonroot:nonroot
 # names against the *build* stage's passwd, not the runtime image's.
 COPY --from=build --chown=65532:65532 /data /data
 VOLUME ["/data"]
-ENV EPHEMERA_DATA_DIR=/data
+ENV AIRLOCK_DATA_DIR=/data
 
 EXPOSE 8080
 
@@ -67,4 +67,4 @@ EXPOSE 8080
 # storage is reachable. A container-level healthcheck would duplicate that and
 # gives an orchestrator a second, inconsistent opinion about the same question.
 
-ENTRYPOINT ["/usr/local/bin/ephemerad"]
+ENTRYPOINT ["/usr/local/bin/airlockd"]

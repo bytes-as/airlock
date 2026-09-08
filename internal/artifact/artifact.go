@@ -29,7 +29,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bytes-as/ephemera/internal/driver"
+	"github.com/bytes-as/airlock/internal/driver"
 )
 
 // Stored describes one artifact held by the store.

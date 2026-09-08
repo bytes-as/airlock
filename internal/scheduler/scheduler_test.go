@@ -13,15 +13,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bytes-as/ephemera/internal/admission"
-	"github.com/bytes-as/ephemera/internal/artifact"
-	"github.com/bytes-as/ephemera/internal/driver"
-	"github.com/bytes-as/ephemera/internal/driver/process"
-	"github.com/bytes-as/ephemera/internal/job"
-	"github.com/bytes-as/ephemera/internal/logstream"
-	"github.com/bytes-as/ephemera/internal/queue"
-	"github.com/bytes-as/ephemera/internal/queue/embedded"
-	"github.com/bytes-as/ephemera/internal/secrets"
+	"github.com/bytes-as/airlock/internal/admission"
+	"github.com/bytes-as/airlock/internal/artifact"
+	"github.com/bytes-as/airlock/internal/driver"
+	"github.com/bytes-as/airlock/internal/driver/process"
+	"github.com/bytes-as/airlock/internal/job"
+	"github.com/bytes-as/airlock/internal/logstream"
+	"github.com/bytes-as/airlock/internal/queue"
+	"github.com/bytes-as/airlock/internal/queue/embedded"
+	"github.com/bytes-as/airlock/internal/secrets"
 )
 
 // These are integration tests. Nothing is mocked: a real bbolt queue, the real
@@ -32,7 +32,7 @@ import (
 // TestHelperProcess is the agent. It exits before the test framework prints, so
 // the driver sees only what the "agent" deliberately produced.
 func TestHelperProcess(t *testing.T) {
-	if os.Getenv("EPHEMERA_TEST_HELPER") != "1" {
+	if os.Getenv("AIRLOCK_TEST_HELPER") != "1" {
 		return
 	}
 
@@ -41,18 +41,18 @@ func TestHelperProcess(t *testing.T) {
 	// os.Exit skips deferred calls, so the marker is removed explicitly by
 	// exitAgent below. A defer here would leave every marker behind and make
 	// the concurrency sample count finished agents as running.
-	if dir := os.Getenv("EPHEMERA_PRESENCE_DIR"); dir != "" {
+	if dir := os.Getenv("AIRLOCK_PRESENCE_DIR"); dir != "" {
 		presenceMarker = filepath.Join(dir, fmt.Sprintf("%d", os.Getpid()))
 		os.WriteFile(presenceMarker, []byte("running"), 0o640)
 	}
 
-	switch os.Getenv("EPHEMERA_TEST_MODE") {
+	switch os.Getenv("AIRLOCK_TEST_MODE") {
 	case "ok":
 		fmt.Println("agent completed the task")
 		exitAgent(0)
 
 	case "artifact":
-		dir := os.Getenv("EPHEMERA_ARTIFACT_DIR")
+		dir := os.Getenv("AIRLOCK_ARTIFACT_DIR")
 		os.MkdirAll(dir, 0o750)
 		os.WriteFile(filepath.Join(dir, "screenshot.png"), []byte("fake-png-bytes"), 0o640)
 		fmt.Println("saved screenshot")
@@ -197,9 +197,9 @@ func (h *harness) spec(mode string) job.Spec {
 	return job.Spec{
 		Command: []string{os.Args[0], "-test.run=TestHelperProcess"},
 		Env: map[string]string{
-			"EPHEMERA_TEST_HELPER":  "1",
-			"EPHEMERA_TEST_MODE":    mode,
-			"EPHEMERA_PRESENCE_DIR": h.presenceDir,
+			"AIRLOCK_TEST_HELPER":  "1",
+			"AIRLOCK_TEST_MODE":    mode,
+			"AIRLOCK_PRESENCE_DIR": h.presenceDir,
 		},
 	}
 }

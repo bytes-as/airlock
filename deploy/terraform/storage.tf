@@ -161,5 +161,5 @@ resource "aws_secretsmanager_secret" "signing_key" {
 #   aws secretsmanager put-secret-value \
 #     --secret-id <arn> --secret-string "$(openssl rand -base64 32)"
 #
-# Until it is set, the control plane generates an ephemeral key and warns that
+# Until it is set, the control plane generates an airlockl key and warns that
 # artifact links will not survive a restart.

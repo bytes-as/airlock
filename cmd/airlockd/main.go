@@ -1,4 +1,4 @@
-// Command ephemerad is the ephemera control plane.
+// Command airlockd is the airlock control plane.
 //
 // It is the composition root: every wiring decision, every default, and every
 // deliberate downgrade is made here and nowhere else. The packages below it
@@ -25,19 +25,19 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/bytes-as/ephemera/internal/admission"
-	"github.com/bytes-as/ephemera/internal/api"
-	"github.com/bytes-as/ephemera/internal/artifact"
-	"github.com/bytes-as/ephemera/internal/driver"
-	"github.com/bytes-as/ephemera/internal/driver/docker"
-	"github.com/bytes-as/ephemera/internal/driver/process"
+	"github.com/bytes-as/airlock/internal/admission"
+	"github.com/bytes-as/airlock/internal/api"
+	"github.com/bytes-as/airlock/internal/artifact"
+	"github.com/bytes-as/airlock/internal/driver"
+	"github.com/bytes-as/airlock/internal/driver/docker"
+	"github.com/bytes-as/airlock/internal/driver/process"
 
-	"github.com/bytes-as/ephemera/internal/driver/fargate"
-	"github.com/bytes-as/ephemera/internal/logstream"
-	"github.com/bytes-as/ephemera/internal/queue/embedded"
-	"github.com/bytes-as/ephemera/internal/reaper"
-	"github.com/bytes-as/ephemera/internal/scheduler"
-	"github.com/bytes-as/ephemera/internal/secrets"
+	"github.com/bytes-as/airlock/internal/driver/fargate"
+	"github.com/bytes-as/airlock/internal/logstream"
+	"github.com/bytes-as/airlock/internal/queue/embedded"
+	"github.com/bytes-as/airlock/internal/reaper"
+	"github.com/bytes-as/airlock/internal/scheduler"
+	"github.com/bytes-as/airlock/internal/secrets"
 )
 
 // version is stamped at build time with -ldflags "-X main.version=...".
@@ -83,7 +83,7 @@ func main() {
 	opts := parseFlags()
 
 	if opts.showVersion {
-		fmt.Printf("ephemerad %s\n", version)
+		fmt.Printf("airlockd %s\n", version)
 		return
 	}
 
@@ -98,59 +98,59 @@ func main() {
 func parseFlags() options {
 	var o options
 
-	flag.StringVar(&o.addr, "addr", envOr("EPHEMERA_ADDR", ":8080"), "address for the HTTP API")
-	flag.StringVar(&o.dataDir, "data-dir", envOr("EPHEMERA_DATA_DIR", "./data"), "directory for the queue, environments and artifacts")
-	flag.StringVar(&o.driverName, "driver", envOr("EPHEMERA_DRIVER", "process"), "compute driver: process, docker or fargate")
-	flag.IntVar(&o.workers, "workers", envIntOr("EPHEMERA_WORKERS", 8), "jobs that may run simultaneously")
-	flag.IntVar(&o.queueDepth, "queue-depth", envIntOr("EPHEMERA_QUEUE_DEPTH", 1000), "maximum queued jobs before submissions are refused")
-	flag.StringVar(&o.logFormat, "log-format", envOr("EPHEMERA_LOG_FORMAT", "text"), "log format: text or json")
-	flag.StringVar(&o.logLevel, "log-level", envOr("EPHEMERA_LOG_LEVEL", "info"), "log level: debug, info, warn or error")
-	flag.StringVar(&o.baseURL, "base-url", os.Getenv("EPHEMERA_BASE_URL"), "public origin for artifact links (derived from --addr when empty)")
-	flag.StringVar(&o.signingKey, "signing-key", os.Getenv("EPHEMERA_SIGNING_KEY"), "key for signing artifact links; generated if empty, which invalidates old links on restart")
-	flag.StringVar(&o.tokens, "tokens", os.Getenv("EPHEMERA_TOKENS"), "comma-separated token=tenant pairs; empty means no authentication")
-	flag.StringVar(&o.secretsDir, "secrets-dir", envOr("EPHEMERA_SECRETS_DIR", ""), "directory of secret files for the 'file' source")
-	flag.StringVar(&o.envPrefix, "secret-env-prefix", envOr("EPHEMERA_SECRET_ENV_PREFIX", "EPHEMERA_SECRET_"), "prefix for the 'env' secret source")
-	flag.DurationVar(&o.provisionTimeout, "provision-timeout", envDurationOr("EPHEMERA_PROVISION_TIMEOUT", 2*time.Minute), "how long an environment may take to provision and start before the job is failed")
-	flag.DurationVar(&o.maxLifetime, "max-env-lifetime", envDurationOr("EPHEMERA_MAX_ENV_LIFETIME", time.Hour), "absolute cap on how long any environment may exist")
-	flag.DurationVar(&o.deadline, "default-deadline", envDurationOr("EPHEMERA_DEFAULT_DEADLINE", 5*time.Minute), "deadline for jobs that request none")
-	flag.DurationVar(&o.maxDeadline, "max-deadline", envDurationOr("EPHEMERA_MAX_DEADLINE", 30*time.Minute), "largest deadline a caller may request")
+	flag.StringVar(&o.addr, "addr", envOr("AIRLOCK_ADDR", ":8080"), "address for the HTTP API")
+	flag.StringVar(&o.dataDir, "data-dir", envOr("AIRLOCK_DATA_DIR", "./data"), "directory for the queue, environments and artifacts")
+	flag.StringVar(&o.driverName, "driver", envOr("AIRLOCK_DRIVER", "process"), "compute driver: process, docker or fargate")
+	flag.IntVar(&o.workers, "workers", envIntOr("AIRLOCK_WORKERS", 8), "jobs that may run simultaneously")
+	flag.IntVar(&o.queueDepth, "queue-depth", envIntOr("AIRLOCK_QUEUE_DEPTH", 1000), "maximum queued jobs before submissions are refused")
+	flag.StringVar(&o.logFormat, "log-format", envOr("AIRLOCK_LOG_FORMAT", "text"), "log format: text or json")
+	flag.StringVar(&o.logLevel, "log-level", envOr("AIRLOCK_LOG_LEVEL", "info"), "log level: debug, info, warn or error")
+	flag.StringVar(&o.baseURL, "base-url", os.Getenv("AIRLOCK_BASE_URL"), "public origin for artifact links (derived from --addr when empty)")
+	flag.StringVar(&o.signingKey, "signing-key", os.Getenv("AIRLOCK_SIGNING_KEY"), "key for signing artifact links; generated if empty, which invalidates old links on restart")
+	flag.StringVar(&o.tokens, "tokens", os.Getenv("AIRLOCK_TOKENS"), "comma-separated token=tenant pairs; empty means no authentication")
+	flag.StringVar(&o.secretsDir, "secrets-dir", envOr("AIRLOCK_SECRETS_DIR", ""), "directory of secret files for the 'file' source")
+	flag.StringVar(&o.envPrefix, "secret-env-prefix", envOr("AIRLOCK_SECRET_ENV_PREFIX", "AIRLOCK_SECRET_"), "prefix for the 'env' secret source")
+	flag.DurationVar(&o.provisionTimeout, "provision-timeout", envDurationOr("AIRLOCK_PROVISION_TIMEOUT", 2*time.Minute), "how long an environment may take to provision and start before the job is failed")
+	flag.DurationVar(&o.maxLifetime, "max-env-lifetime", envDurationOr("AIRLOCK_MAX_ENV_LIFETIME", time.Hour), "absolute cap on how long any environment may exist")
+	flag.DurationVar(&o.deadline, "default-deadline", envDurationOr("AIRLOCK_DEFAULT_DEADLINE", 5*time.Minute), "deadline for jobs that request none")
+	flag.DurationVar(&o.maxDeadline, "max-deadline", envDurationOr("AIRLOCK_MAX_DEADLINE", 30*time.Minute), "largest deadline a caller may request")
 	flag.StringVar(&o.dockerHost, "docker-host", os.Getenv("DOCKER_HOST"), "docker daemon address (default: DOCKER_HOST or the platform socket)")
 
 	// --- fargate driver. Every one of these is a Terraform output; the runbook
 	// maps them one to one, and the driver refuses to start without them
 	// rather than failing later on the first job.
-	flag.StringVar(&o.egressProxyPool, "egress-proxy-pool", os.Getenv("EPHEMERA_EGRESS_PROXY_POOL"),
+	flag.StringVar(&o.egressProxyPool, "egress-proxy-pool", os.Getenv("AIRLOCK_EGRESS_PROXY_POOL"),
 		"comma-separated egress proxies to rotate jobs across, each `url` or `region=url` (e.g. \"eu=http://p-eu:8888,us=http://p-us:8888\")")
 
-	flag.StringVar(&o.ecsCluster, "ecs-cluster", os.Getenv("EPHEMERA_ECS_CLUSTER"), "ECS cluster for the fargate driver")
-	flag.StringVar(&o.jobTaskDefinition, "job-task-definition", os.Getenv("EPHEMERA_JOB_TASK_DEFINITION"), "ECS task definition family for job tasks")
-	flag.StringVar(&o.jobContainerName, "job-container-name", envOr("EPHEMERA_JOB_CONTAINER_NAME", "agent"), "container name inside the job task definition")
-	flag.StringVar(&o.subnets, "subnets", os.Getenv("EPHEMERA_SUBNETS"), "comma-separated subnet IDs for job tasks")
-	flag.StringVar(&o.securityGroups, "security-groups", envOr("EPHEMERA_SECURITY_GROUP", os.Getenv("EPHEMERA_SECURITY_GROUPS")), "comma-separated security group IDs for job tasks")
-	flag.BoolVar(&o.assignPublicIP, "assign-public-ip", os.Getenv("EPHEMERA_ASSIGN_PUBLIC_IP") == "1", "give job tasks a public IP (only for public subnets)")
-	flag.StringVar(&o.artifactBucket, "artifact-bucket", os.Getenv("EPHEMERA_ARTIFACT_BUCKET"), "S3 bucket agents upload artifacts to")
-	flag.StringVar(&o.jobLogGroup, "job-log-group", os.Getenv("EPHEMERA_JOB_LOG_GROUP"), "CloudWatch Logs group the job task definition writes to")
-	flag.StringVar(&o.dockerNetwork, "docker-network", envOr("EPHEMERA_DOCKER_NETWORK", ""), "internal docker network for job containers; required for proxied egress")
-	flag.StringVar(&o.egressProxy, "egress-proxy", envOr("EPHEMERA_EGRESS_PROXY", ""), "proxy URL injected into job containers on an internal network")
-	flag.StringVar(&o.pullPolicy, "pull-policy", envOr("EPHEMERA_PULL_POLICY", "if-missing"), "image pull policy: always, if-missing or never")
+	flag.StringVar(&o.ecsCluster, "ecs-cluster", os.Getenv("AIRLOCK_ECS_CLUSTER"), "ECS cluster for the fargate driver")
+	flag.StringVar(&o.jobTaskDefinition, "job-task-definition", os.Getenv("AIRLOCK_JOB_TASK_DEFINITION"), "ECS task definition family for job tasks")
+	flag.StringVar(&o.jobContainerName, "job-container-name", envOr("AIRLOCK_JOB_CONTAINER_NAME", "agent"), "container name inside the job task definition")
+	flag.StringVar(&o.subnets, "subnets", os.Getenv("AIRLOCK_SUBNETS"), "comma-separated subnet IDs for job tasks")
+	flag.StringVar(&o.securityGroups, "security-groups", envOr("AIRLOCK_SECURITY_GROUP", os.Getenv("AIRLOCK_SECURITY_GROUPS")), "comma-separated security group IDs for job tasks")
+	flag.BoolVar(&o.assignPublicIP, "assign-public-ip", os.Getenv("AIRLOCK_ASSIGN_PUBLIC_IP") == "1", "give job tasks a public IP (only for public subnets)")
+	flag.StringVar(&o.artifactBucket, "artifact-bucket", os.Getenv("AIRLOCK_ARTIFACT_BUCKET"), "S3 bucket agents upload artifacts to")
+	flag.StringVar(&o.jobLogGroup, "job-log-group", os.Getenv("AIRLOCK_JOB_LOG_GROUP"), "CloudWatch Logs group the job task definition writes to")
+	flag.StringVar(&o.dockerNetwork, "docker-network", envOr("AIRLOCK_DOCKER_NETWORK", ""), "internal docker network for job containers; required for proxied egress")
+	flag.StringVar(&o.egressProxy, "egress-proxy", envOr("AIRLOCK_EGRESS_PROXY", ""), "proxy URL injected into job containers on an internal network")
+	flag.StringVar(&o.pullPolicy, "pull-policy", envOr("AIRLOCK_PULL_POLICY", "if-missing"), "image pull policy: always, if-missing or never")
 	flag.Float64Var(&o.submitsPerSecond, "submits-per-second", 0, "per-tenant submission rate (0 uses the default)")
 	flag.Float64Var(&o.submitBurst, "submit-burst", 0, "per-tenant submission burst (0 uses the default)")
 	flag.IntVar(&o.maxConcurrentPerTenant, "max-concurrent-per-tenant", 0, "per-tenant concurrent job cap (0 uses the default)")
 	flag.BoolVar(&o.showVersion, "version", false, "print the version and exit")
 
 	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), `ephemerad - control plane for ephemeral job environments
+		fmt.Fprintf(flag.CommandLine.Output(), `airlockd - control plane for airlockl job environments
 
 Usage:
-  ephemerad [flags]
+  airlockd [flags]
 
 Every flag can also be set by environment variable (shown in its default).
 
 Quick start:
-  ephemerad --data-dir ./data
+  airlockd --data-dir ./data
 
 Then submit a job:
-  ephemera submit --command "echo hello"
+  airlock submit --command "echo hello"
 
 `)
 		flag.PrintDefaults()
@@ -185,7 +185,7 @@ func run(opts options, log *slog.Logger) error {
 	signingKey := []byte(opts.signingKey)
 	if len(signingKey) == 0 {
 		log.Warn("no signing key configured; artifact links will not survive a restart. " +
-			"Set EPHEMERA_SIGNING_KEY to keep them valid.")
+			"Set AIRLOCK_SIGNING_KEY to keep them valid.")
 	}
 	baseURL := opts.baseURL
 	if baseURL == "" {
@@ -470,7 +470,7 @@ func buildDriver(opts options, dataDir string) (driver.Driver, error) {
 // artifactDirFor returns the path inside an environment where agents write.
 //
 // The process driver runs on the host, so it hands the agent an absolute path
-// through EPHEMERA_ARTIFACT_DIR and this value is unused. Container drivers
+// through AIRLOCK_ARTIFACT_DIR and this value is unused. Container drivers
 // mount a fixed path instead.
 func artifactDirFor(d driver.Driver) string {
 	if d.Name() == "process" {

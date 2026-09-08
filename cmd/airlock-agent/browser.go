@@ -43,13 +43,13 @@ var browserNames = []string{
 
 // findBrowser locates a usable browser, honouring an explicit override first.
 func findBrowser() string {
-	if explicit := os.Getenv("EPHEMERA_BROWSER"); explicit != "" {
+	if explicit := os.Getenv("AIRLOCK_BROWSER"); explicit != "" {
 		if path, err := exec.LookPath(explicit); err == nil {
 			return path
 		}
 		// An explicit request that cannot be satisfied is worth saying out loud
 		// rather than silently falling back to a different browser.
-		logf("warning: EPHEMERA_BROWSER=%q not found on PATH", explicit)
+		logf("warning: AIRLOCK_BROWSER=%q not found on PATH", explicit)
 	}
 	for _, name := range browserNames {
 		if path, err := exec.LookPath(name); err == nil {
@@ -61,7 +61,7 @@ func findBrowser() string {
 
 // searchURL builds the page to load for a query.
 func searchURL(query string) string {
-	if explicit := os.Getenv("EPHEMERA_URL"); explicit != "" {
+	if explicit := os.Getenv("AIRLOCK_URL"); explicit != "" {
 		return explicit
 	}
 	// example.com by default: stable, tiny, and it never bot-challenges.
@@ -73,7 +73,7 @@ func searchURL(query string) string {
 	// rotation exists to address, and a reminder that the hard half of IP
 	// rotation is the reputation of the addresses, not the routing code.
 	//
-	// Point EPHEMERA_URL at a search engine (with a proxy pool behind it) when
+	// Point AIRLOCK_URL at a search engine (with a proxy pool behind it) when
 	// that is what you want to exercise.
 	return "https://example.com/?q=" + url.QueryEscape(query)
 }

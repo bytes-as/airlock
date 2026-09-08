@@ -16,25 +16,25 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/bytes-as/ephemera/internal/driver"
-	"github.com/bytes-as/ephemera/internal/driver/archive"
-	"github.com/bytes-as/ephemera/internal/job"
+	"github.com/bytes-as/airlock/internal/driver"
+	"github.com/bytes-as/airlock/internal/driver/archive"
+	"github.com/bytes-as/airlock/internal/job"
 )
 
 // Label keys applied to every container, so environments remain identifiable as
 // ours after the control plane that created them is gone.
 const (
-	LabelManaged = "ephemera.managed"
-	LabelJob     = "ephemera.job"
-	LabelTenant  = "ephemera.tenant"
-	LabelExpires = "ephemera.expires-at"
-	LabelCreated = "ephemera.created-at"
+	LabelManaged = "airlock.managed"
+	LabelJob     = "airlock.job"
+	LabelTenant  = "airlock.tenant"
+	LabelExpires = "airlock.expires-at"
+	LabelCreated = "airlock.created-at"
 	// LabelArtifactDir records the host directory bound at artifactMount.
 	//
 	// Written on the container so Collect and Destroy can find the artifacts of
 	// an environment this process did not create - after a control-plane
 	// restart the reaper still needs to clean the directory up.
-	LabelArtifactDir = "ephemera.artifact-dir"
+	LabelArtifactDir = "airlock.artifact-dir"
 )
 
 // artifactMount is where agents write their outputs inside the container.
@@ -179,7 +179,7 @@ func New(cfg Config, opts ...Option) (*Driver, error) {
 	}
 
 	if d.cfg.ArtifactRoot == "" {
-		d.cfg.ArtifactRoot = filepath.Join(os.TempDir(), "ephemera-artifacts")
+		d.cfg.ArtifactRoot = filepath.Join(os.TempDir(), "airlock-artifacts")
 	}
 	root, err := filepath.Abs(d.cfg.ArtifactRoot)
 	if err != nil {
@@ -248,7 +248,7 @@ func (d *Driver) Create(ctx context.Context, spec driver.EnvSpec) (driver.Env, e
 		expires = now.Add(spec.Deadline)
 	}
 
-	name := "ephemera-" + sanitiseName(spec.JobID) + "-" + strconv.FormatInt(now.UnixNano()%1e6, 36)
+	name := "airlock-" + sanitiseName(spec.JobID) + "-" + strconv.FormatInt(now.UnixNano()%1e6, 36)
 
 	// The artifact directory is created on the host before the container, and
 	// bound in below. 0o777 because the agent runs as an unprivileged uid that
@@ -510,9 +510,9 @@ func (d *Driver) buildEnv(spec driver.EnvSpec, proxy EgressProxy) []string {
 	env := make([]string, 0, len(spec.Env)+len(spec.Secrets)+6)
 
 	env = append(env,
-		"EPHEMERA_JOB_ID="+spec.JobID,
-		"EPHEMERA_TENANT_ID="+spec.TenantID,
-		"EPHEMERA_ARTIFACT_DIR="+artifactMount,
+		"AIRLOCK_JOB_ID="+spec.JobID,
+		"AIRLOCK_TENANT_ID="+spec.TenantID,
+		"AIRLOCK_ARTIFACT_DIR="+artifactMount,
 	)
 
 	if spec.Network.Mode == driver.NetworkProxied && proxy.URL != "" {
@@ -527,7 +527,7 @@ func (d *Driver) buildEnv(spec driver.EnvSpec, proxy EgressProxy) []string {
 			// Told to the agent as well as used, so a run's own logs record
 			// where it egressed from. Debugging "this looked different today"
 			// without that is guesswork.
-			env = append(env, "EPHEMERA_EGRESS_REGION="+proxy.Region)
+			env = append(env, "AIRLOCK_EGRESS_REGION="+proxy.Region)
 		}
 		if d.cfg.NoProxyHosts != "" {
 			env = append(env, "NO_PROXY="+d.cfg.NoProxyHosts, "no_proxy="+d.cfg.NoProxyHosts)

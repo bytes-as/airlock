@@ -10,12 +10,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bytes-as/ephemera/internal/driver"
-	"github.com/bytes-as/ephemera/internal/job"
+	"github.com/bytes-as/airlock/internal/driver"
+	"github.com/bytes-as/airlock/internal/job"
 )
 
 // The tests below run real child processes. The child is this same test binary,
-// re-executed with EPHEMERA_TEST_HELPER=1, which is the standard Go pattern for
+// re-executed with AIRLOCK_TEST_HELPER=1, which is the standard Go pattern for
 // exercising process handling without shipping a fixture binary or depending on
 // shell utilities that differ across Windows, macOS and Linux.
 
@@ -23,11 +23,11 @@ import (
 // the testing framework can print anything, so the driver sees only the output
 // the "agent" deliberately produced.
 func TestHelperProcess(t *testing.T) {
-	if os.Getenv("EPHEMERA_TEST_HELPER") != "1" {
+	if os.Getenv("AIRLOCK_TEST_HELPER") != "1" {
 		return
 	}
 
-	switch os.Getenv("EPHEMERA_TEST_MODE") {
+	switch os.Getenv("AIRLOCK_TEST_MODE") {
 	case "echo":
 		os.Stdout.WriteString("hello from stdout\n")
 		os.Stderr.WriteString("hello from stderr\n")
@@ -42,7 +42,7 @@ func TestHelperProcess(t *testing.T) {
 		os.Exit(0)
 
 	case "artifact":
-		dir := os.Getenv("EPHEMERA_ARTIFACT_DIR")
+		dir := os.Getenv("AIRLOCK_ARTIFACT_DIR")
 		if dir == "" {
 			os.Stderr.WriteString("no artifact dir provided\n")
 			os.Exit(1)
@@ -57,7 +57,7 @@ func TestHelperProcess(t *testing.T) {
 
 	case "env":
 		// Print the values the driver injected so the test can assert on them.
-		os.Stdout.WriteString("JOB=" + os.Getenv("EPHEMERA_JOB_ID") + "\n")
+		os.Stdout.WriteString("JOB=" + os.Getenv("AIRLOCK_JOB_ID") + "\n")
 		os.Stdout.WriteString("PUBLIC=" + os.Getenv("PUBLIC_SETTING") + "\n")
 		os.Stdout.WriteString("SECRET=" + os.Getenv("API_TOKEN") + "\n")
 		os.Exit(0)
@@ -72,8 +72,8 @@ func helperSpec(mode string, deadline time.Duration) driver.EnvSpec {
 		TenantID: "tenant-a",
 		Command:  []string{os.Args[0], "-test.run=TestHelperProcess"},
 		Env: map[string]string{
-			"EPHEMERA_TEST_HELPER": "1",
-			"EPHEMERA_TEST_MODE":   mode,
+			"AIRLOCK_TEST_HELPER": "1",
+			"AIRLOCK_TEST_MODE":   mode,
 		},
 		Deadline: deadline,
 	}

@@ -179,7 +179,7 @@ route exposes it.
 | Signed URLs | expiry, forgery, field-substitution, length-prefix collision |
 | Traversal | tar entries and artifact names, both directions |
 | Terraform | `fmt`, `validate`, `tflint`, `checkov` pass (15 skips, each with a reason) — **not applied** |
-| Docker driver | framing, extraction, policy refusal, **plus 11/11 integration tests against a live daemon** |
+| Docker driver | framing, extraction, policy refusal, **plus 13/13 integration tests against a live daemon** |
 | Races | **clean** — `-race` across every package |
 
 The `fargate` driver is not implemented. The interface, Terraform and IAM model

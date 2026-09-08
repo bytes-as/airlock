@@ -52,10 +52,11 @@ flowchart TB
 it — Terraform, ECR, ECS task definitions, IAM and a `fargate` driver — but
 never executed there, and labelled as such throughout.**
 
-> **Three things are deliberately not done** — the AWS path has never been run,
-> memory isolation on Docker is not absolute, and there are no warm pools. All
-> three come down to not having an AWS account to spend on this. Reasons and
-> upgrade paths: **[Known gaps, and why](#known-gaps-and-why)**.
+> **Three things are deliberately out of scope** — the AWS path has not been
+> executed, memory isolation on Docker is not absolute, and there are no warm
+> pools. All three require a live AWS account and billable infrastructure to
+> verify. The code is built to run that way; it has not been run that way.
+> Reasons and upgrade paths: **[Known gaps, and why](#known-gaps-and-why)**.
 
 > **[docs/RUNBOOK.md](docs/RUNBOOK.md) is the operator's guide**: every command
 > to build, run, test, deploy and tear this down, with what you should see and
@@ -162,6 +163,22 @@ An egress proxy is the only container bridging the internal network and the
 internet, making it a single auditable chokepoint. Its filter denies the
 metadata and RFC1918 ranges too, so the block still holds if someone later makes
 that network routable.
+
+**Which layer does what** — worth being precise, because it is the difference
+between a control and a convention:
+
+| Layer | Mechanism | Is it enforcement? |
+|---|---|---|
+| Container / network | `internal: true` — no route off the network | **Yes.** Nothing inside can reach the internet, whatever it tries |
+| Process | `HTTP_PROXY` / `HTTPS_PROXY` injected into the container | **No.** A hint that cooperating software honours |
+| Browser | agent converts those into Chromium's `--proxy-server` | **No**, and necessary — Chromium does not reliably read the env vars |
+
+Injecting proxy variables is *not* what stops an agent reaching metadata; a
+process is free to ignore them. The internal network is what makes the proxy the
+only way out, and the variables merely tell well-behaved software where the door
+is. This is not a transparent proxy — there is no traffic interception — so a
+process that ignores the variables does not bypass the proxy, it simply reaches
+nothing. Fail-closed rather than fail-open, which is the right way round.
 
 ```mermaid
 flowchart LR
@@ -500,7 +517,7 @@ README worthless. So, plainly:
 | Egress rotation across a proxy pool | ✅ tested — two jobs, two different egress points |
 | Real browser capture through the egress proxy | ✅ verified — headless Chromium, real page, 22 KB PNG |
 | HTTP API, SSE streaming, signed downloads | ✅ tested and exercised live |
-| `docker` driver | ✅ integration suite executed against a live daemon — 11/11 |
+| `docker` driver | ✅ integration suite executed against a live daemon — 13/13 |
 | Race detector | ✅ clean — `-race` across every package, no data races |
 | Terraform | ⚠️ `fmt`, `validate`, `tflint`, `checkov` pass; **never applied** |
 | `fargate` driver | ⚠️ implemented and unit tested against fakes; **never executed against AWS** — [why](#known-gaps-and-why) |
@@ -508,8 +525,8 @@ README worthless. So, plainly:
 Verified on macOS 26.5.1 (arm64), Go 1.27.0, Docker Engine 29.1.3, Terraform 1.16.1.
 Reproduce any row with [docs/RUNBOOK.md](docs/RUNBOOK.md).
 
-**No AWS account was available.** `terraform plan` needs credentials, so
-"validated" means *static* validation, not a plan against a real account.
+**No AWS account was used.** `terraform plan` needs credentials, so "validated"
+means *static* validation, not a plan against a real account.
 
 Checkov passes 165 checks. It got there by fixing what was free and correct —
 the VPC's default security group now denies all traffic, and the reaper Lambda
@@ -558,11 +575,30 @@ runbook walks through deploying it.
 
 It has never run. That is not a hedge, it is the single most useful thing this
 section can tell you, and this project has already paid for the lesson: the
-`docker` driver spent weeks in the state "written and compiles", and the first
-contact with a real daemon found four bugs — one of which meant artifacts could
-**never** be collected, on any job, silently. The `fargate` driver is at exactly
-that maturity. My own guess at what breaks first is the CloudWatch log stream
-name, an IAM gap, and an architecture mismatch on the pushed image.
+`docker` driver spent a long time in the state "written and compiles", and the
+first contact with a real daemon found four bugs — one of which meant artifacts
+could **never** be collected, on any job, silently. The `fargate` driver is at
+exactly that maturity.
+
+Three predictable first-deploy failures were closed by inspection rather than
+left to be discovered, because each was findable without an account:
+
+- **The log stream name is discovered, not assumed.** It is read from the task
+  definition's own `logConfiguration`, so a Terraform change to the log group,
+  the stream prefix or the container name cannot silently produce jobs that run
+  correctly and stream nothing.
+- **Two IAM permissions were missing.** `logs:GetLogEvents` — the policy granted
+  only the write actions, which is what the *task* needs, not what the control
+  plane needs, so log streaming would have failed while everything else worked.
+  And `ecs:TagResource`, without which `RunTask` fails outright, since tagging on
+  create is a separate permission and those tags are how the reaper finds orphans.
+- **Image architecture is enforced.** The task definitions run ARM64; an amd64
+  image pushes and deploys fine and then dies with `exec format error`, which
+  names neither architecture nor the real cause. `make aws-push` sets the
+  platform and `make aws-verify-images` checks it.
+
+None of that makes the path *verified*. It removes three known ways to fail and
+leaves the unknown ones, which is the honest position.
 
 What *is* demonstrable without an AWS account is the thing the abstraction was
 for: the scheduler, reaper, admission control, failure taxonomy, API and CLI are
@@ -591,16 +627,21 @@ interface rather than two, and the third one found no reason to change it.
 
 ## Known gaps, and why
 
-Three things in this repo are not done. None of them are oversights, and the
-reason for all three is the same one, so it is worth stating once, plainly.
+Three things in this repo are deliberately out of scope. None are oversights,
+and all three trace to the same boundary, so it is worth stating once.
 
-**I do not have an AWS account for this.** Not "did not get around to it" — a
-personal account would cost real money to run this in. The Terraform here
-provisions a NAT gateway (~$32/month before a byte of traffic), an ECS cluster,
-a NAT-backed private subnet and an S3 bucket. Standing that up to prove it works
-is a bill I chose not to pay for a project that runs perfectly well on a laptop.
-Every gap below follows from that decision, and I would rather say so than
-present a system whose most important claims I could not check.
+**Verifying them requires a live AWS account and running billable
+infrastructure.** The Terraform provisions a NAT gateway, an ECS cluster, private
+subnets and an S3 bucket — a standing monthly cost that accrues whether or not a
+job ever runs. Standing that up purely to demonstrate a system that runs
+completely on a laptop was not a worthwhile trade for this project, so it was
+scoped out.
+
+The consequence is stated rather than hidden, and the design accounts for it: the
+AWS path is **built to be run that way** — Terraform, ECR, task definitions, IAM
+and a `fargate` driver are all present and wired — it simply has not been
+executed. [docs/RUNBOOK.md](docs/RUNBOOK.md) Part 5 is the step-by-step for doing
+so when an account is available, and Part 6 is the teardown.
 
 ### 1. The AWS path has never been executed
 
@@ -608,15 +649,21 @@ The `fargate` driver is written, wired into the daemon, and unit tested against
 a fake ECS/S3/CloudWatch layer. It has never spoken to AWS. The Terraform has
 never been applied.
 
-*Why:* no account to apply it into. See above.
+*Why:* applying it requires a live account and ongoing spend. See above.
 
 *What that means for you:* expect to fix things on the first `terraform apply`.
 This project's own history is the reason to take that seriously rather than as a
 formality — the `docker` driver also spent a long time "written and compiling",
 and the first contact with a real daemon found four bugs, one of which meant
 artifacts could **never** be collected, silently, on every job. The `fargate`
-driver is at exactly that maturity. My guess at what breaks first: an IAM gap, an
-architecture mismatch on the pushed image, and the CloudWatch log stream name.
+driver is at exactly that maturity.
+
+The three most predictable first-deploy failures have been closed by inspection
+— the log stream name is read from the task definition rather than assumed, two
+missing IAM permissions (`logs:GetLogEvents`, `ecs:TagResource`) were found and
+added, and image architecture is set and checked by `make aws-push` /
+`make aws-verify-images`. That removes three known ways to fail; it does not make
+the path verified.
 
 *What is genuinely demonstrable without an account:* that the abstraction holds.
 The scheduler, reaper, admission control, failure taxonomy, API and CLI are all
@@ -632,10 +679,11 @@ by cgroups, so one job cannot starve another. But these containers **share a
 kernel**, so a kernel exploit crosses between them. That is not "total memory
 isolation".
 
-*Why:* a hypervisor boundary needs Firecracker, gVisor, or Fargate — and Fargate
-brings us back to gap 1. Running gVisor locally was possible but would have made
-the one path a reader can actually run harder to set up, for a property that
-matters in production and not on a laptop.
+*Why:* a hypervisor boundary needs Firecracker, gVisor or Fargate, and the
+Fargate route returns to gap 1. gVisor was viable locally but adds a runtime
+every reader would have to install before anything works, in exchange for a
+property that matters in production rather than on a laptop. The trade favoured
+keeping the local path immediate.
 
 *The upgrade path, in order of effort:* `--driver fargate` (each task is already
 its own microVM), gVisor as a Docker runtime (`--runtime=runsc`, roughly a
@@ -648,10 +696,11 @@ for the control plane, and the failure taxonomy already treats a reclaimed task
 as retryable infrastructure failure rather than an agent bug. Warm pools — a
 reserve of pre-provisioned environments to cut time-to-first-byte — are not.
 
-*Why:* a warm pool is only meaningful when you can measure the cold-start it is
-removing, and that measurement lives in the cloud path I could not run. Building
-it locally, where container start is already ~200ms, would have been tuning
-against a number that does not exist in production.
+*Why:* a warm pool is only worth building against a measured cold start, and
+that measurement lives in the cloud path — task placement, image pull, ENI
+attachment — none of which exist locally, where a container starts in about
+200ms. Building one here would be tuning against a number that does not
+represent production.
 
 *What it would take:* the `Driver` interface already has the shape for it —
 `Create` and `Start` are separate calls precisely so an environment can exist

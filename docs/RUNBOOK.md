@@ -451,13 +451,13 @@ curl http://localhost:8080/v1/stats
 |---|---|---|
 | `make test` | Go only | All 12 packages. No Docker, no cloud. |
 | `make test-race` | Go + cgo | The same suite under the race detector. |
-| `make test-docker` | Docker running | Adds 11 integration tests against a live daemon. |
+| `make test-docker` | Docker running | Adds 13 integration tests against a live daemon. |
 | `make test-all` | all three | Everything. |
 
 ```bash
 make test        # expect: ok for every package
 make test-race   # expect: ok, and no WARNING: DATA RACE
-make test-docker # expect: ok, including 11 TestIntegration* tests
+make test-docker # expect: ok, including 13 TestIntegration* tests
 ```
 
 > **Read the skips.** `make test-docker` reporting `ok` while every
@@ -468,7 +468,7 @@ make test-docker # expect: ok, including 11 TestIntegration* tests
 > go test -tags docker ./internal/driver/docker/ -run TestIntegration -v | grep -E '^--- '
 > ```
 >
-> You want `PASS` on all 11. If you see `SKIP: ... docker daemon not available`,
+> You want `PASS` on all 13. If you see `SKIP: ... docker daemon not available`,
 > the daemon is unreachable — see [Part 7](#part-7--troubleshooting).
 
 ---
@@ -485,7 +485,9 @@ make test-docker # expect: ok, including 11 TestIntegration* tests
 > traffic, and it is billed whether or not you run a single job. Do
 > [Part 6](#part-6--tear-down-aws) when you are finished.
 >
-> Use a **personal or sandbox account**, never a shared or corporate one.
+> **Deploy into an account you own and can safely tear down.** Never a shared,
+> production or employer-owned account: this creates a VPC, an ECS cluster and
+> IAM roles, and `terraform destroy` removes them again.
 
 ### 5.1 Point the AWS CLI at the right account
 

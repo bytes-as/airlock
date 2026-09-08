@@ -58,11 +58,12 @@ output "verification_status" {
     checkov all pass. Checkov's 15 skipped checks are listed individually with
     a reason each in .github/workflows/ci.yml.
 
-    It has NOT been applied to a real AWS account - the author had none available.
-    Neither has the fargate driver that runs against it ever executed: it is
-    unit tested against fakes only. Expect to fix things on first apply, and
-    read docs/RUNBOOK.md before you do - it says what to watch for and how to
-    tear everything down.
+    It has NOT been applied to a real AWS account: doing so requires live
+    infrastructure that bills continuously, which was out of scope for this
+    project. Neither has the fargate driver that runs against it ever executed;
+    it is unit tested against fakes only. Both are built to be run this way.
+    Expect to fix things on first apply, and read docs/RUNBOOK.md before you do -
+    it says what to watch for and how to tear everything down.
 
     The local Docker path, by contrast, is fully verified end to end. If you
     want to see the system work rather than deploy it, start there.

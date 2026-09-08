@@ -35,7 +35,7 @@ flowchart TB
     DRV --> DOCK["docker<br/>container + egress control"]
     DRV --> FARG["fargate<br/>written, never executed"]
 
-    PROC & DOCK & FARG --> ENV["Airlockl environment"]
+    PROC & DOCK & FARG --> ENV["Ephemeral environment"]
 
     ENV --> LOGS["Log stream<br/>SSE, live + replay"]
     ENV --> ART["Artifacts<br/>HMAC-signed URLs"]
@@ -269,10 +269,15 @@ parallelism — fifty submissions over a minute, each running an hour.
 Measured, not asserted:
 
 ```
-50 concurrent submissions: 50 accepted, 50 succeeded in 5s
+50 concurrent submissions: 50 accepted, 50 succeeded in 2.3s
 peak observed concurrency: exactly 6 of 6 workers
 environments left behind: 0
 ```
+
+That is the in-process test, with a fast stand-in agent. Against the container
+path with the real browser, `make load-test` finishes the same 50 in about 20
+seconds — still 8 at a time, because the worker pool is what bounds it. The
+scheduler is the same in both; the difference is entirely the payload.
 
 Concurrency is measured by sampling presence files that real agent processes
 create and remove, not by trusting a counter.
@@ -326,7 +331,7 @@ Three layers, each covering the previous one's failure mode:
 
 ```mermaid
 flowchart TB
-    ENV["Airlockl environment<br/>costs money every second it lives"]
+    ENV["Ephemeral environment<br/>costs money every second it lives"]
 
     L1["Layer 1 — deadline<br/>inside the environment"]
     L2["Layer 2 — sweeper<br/>inside the control plane"]
@@ -511,7 +516,7 @@ README worthless. So, plainly:
 
 | | Status |
 |---|---|
-| Core pipeline on the `process` driver | ✅ verified end to end, on a live daemon |
+| Core pipeline on the `process` driver | ✅ verified end to end, real child processes |
 | 50 concurrent jobs, bounded concurrency, zero leaks | ✅ measured |
 | Failure taxonomy, deadlines, retries, reaping | ✅ tested, including crash and hang paths |
 | Secret non-leakage, signed URLs, path traversal | ✅ tested |

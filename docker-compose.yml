@@ -1,7 +1,7 @@
 # Local deployment: the whole system, one command.
 #
 #   docker compose up --build
-#   airlock run --image airlock/agent:dev --query "airlockl environments"
+#   airlock run --image airlock/agent:dev --query "ephemeral environments"
 #
 # This is developer orchestration, NOT infrastructure as code. It consumes a
 # Docker daemon that already exists; it does not provision anything, has no

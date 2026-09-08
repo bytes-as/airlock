@@ -77,7 +77,7 @@ run: build
 ## demo: run one job end to end against a locally running control plane
 .PHONY: demo
 demo: build
-	$(BIN)/airlock run --command "$(PWD)/$(BIN)/airlock-agent" --query "airlockl environments"
+	$(BIN)/airlock run --command "$(PWD)/$(BIN)/airlock-agent" --query "ephemeral environments"
 
 ## up: build and start the full stack in Docker, with egress isolation
 .PHONY: up

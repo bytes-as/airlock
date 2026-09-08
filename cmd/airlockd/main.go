@@ -139,7 +139,7 @@ func parseFlags() options {
 	flag.BoolVar(&o.showVersion, "version", false, "print the version and exit")
 
 	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), `airlockd - control plane for airlockl job environments
+		fmt.Fprintf(flag.CommandLine.Output(), `airlockd - control plane for ephemeral job environments
 
 Usage:
   airlockd [flags]

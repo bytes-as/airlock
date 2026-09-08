@@ -63,7 +63,7 @@ func finish(code int) {
 func main() {
 	var (
 		task      = flag.String("task", envOr("AIRLOCK_TASK", "search"), "task to perform")
-		query     = flag.String("query", envOr("AIRLOCK_QUERY", "airlockl environments"), "search query")
+		query     = flag.String("query", envOr("AIRLOCK_QUERY", "ephemeral environments"), "search query")
 		steps     = flag.Int("steps", envIntOr("AIRLOCK_STEPS", 4), "simulated steps to perform")
 		stepDelay = flag.Duration("step-delay", envDurationOr("AIRLOCK_STEP_DELAY", 300*time.Millisecond), "pause between steps")
 		failAt    = flag.Int("fail-at", envIntOr("AIRLOCK_FAIL_AT", 0), "fail deliberately at this step (0 never)")

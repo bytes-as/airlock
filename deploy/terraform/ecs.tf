@@ -117,7 +117,7 @@ resource "aws_ecs_task_definition" "job" {
 
   volume {
     name = "artifacts"
-    # No configuration block means an airlockl volume that lives and dies with
+    # No configuration block means an ephemeral volume that lives and dies with
     # the task. The job's filesystem vanishing with the task is a guarantee of
     # the platform rather than something the control plane has to remember.
   }

@@ -273,7 +273,7 @@ jobs:
             CKV2_AWS_11,
             CKV2_AWS_57
           # --- storage and retention ---
-          # CKV_AWS_144  cross-region replication - artifacts are airlockl and
+          # CKV_AWS_144  cross-region replication - artifacts are ephemeral and
           #              expire in 30 days; replication would double storage cost
           #              for data with no recovery value.
           # CKV_AWS_18   access logging - would need a second bucket and its own

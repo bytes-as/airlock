@@ -40,7 +40,7 @@ provider "aws" {
       Environment = var.environment
       ManagedBy   = "terraform"
       # Cost allocation is not an afterthought here: this system's whole premise
-      # is that airlockl compute is expensive when it leaks, and you cannot
+      # is that ephemeral compute is expensive when it leaks, and you cannot
       # find a leak you are not tagging for.
       CostCenter = var.cost_center
     }

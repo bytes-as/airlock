@@ -10,10 +10,22 @@ else. Commands are copy-pasteable in order.
 
 ## In a hurry? Three commands
 
+Start everything:
+
 ```bash
-docker compose up --build -d                      # start everything
+docker compose up --build -d
+```
+
+Build the client and run one job:
+
+```bash
 make build && ./bin/airlock run --image airlock/agent:dev --query "hello"
-docker compose down -v                            # stop everything
+```
+
+Stop everything:
+
+```bash
+docker compose down -v
 ```
 
 That submits a job, runs it in its own throwaway container with a real headless
@@ -75,17 +87,22 @@ cd airlock
 
 The fastest path. Needs **only Go** — no Docker, no cloud account, no services.
 
+**1.** Build the three binaries into `./bin`:
+
 ```bash
-# 1. Build the three binaries into ./bin
 make build
+```
 
-# 2. Start the control plane in the background
+**2.** Start the control plane in the background:
+
+```bash
 ./bin/airlockd --data-dir ./data &
+```
 
-# 3. Submit a job and watch it run
-./bin/airlock run \
-  --command "$PWD/bin/airlock-agent" \
-  --query "site reliability"
+**3.** Submit a job and watch it run:
+
+```bash
+./bin/airlock run --command "$PWD/bin/airlock-agent" --query "site reliability"
 ```
 
 **What you should see:** the job is submitted, its logs stream live, and you get
@@ -200,14 +217,16 @@ watch -n0.5 'docker ps --filter "label=airlock.managed=true" --format "{{.Names}
 
 ### Prove the egress control (the security claim)
 
-```bash
-# Cloud metadata must be unreachable from the jobs network.
-docker run --rm --network airlock_jobs alpine:3.19 \
-  sh -c 'wget -q -T 3 -O - http://169.254.169.254/ 2>&1 || echo BLOCKED-GOOD'
+Cloud metadata must be unreachable from the jobs network:
 
-# And there is no direct route to the internet at all.
-docker run --rm --network airlock_jobs alpine:3.19 \
-  sh -c 'wget -q -T 3 -O /dev/null http://example.com 2>&1 || echo NO-ROUTE-GOOD'
+```bash
+docker run --rm --network airlock_jobs alpine:3.19 sh -c 'wget -q -T 3 -O - http://169.254.169.254/ 2>&1 || echo BLOCKED-GOOD'
+```
+
+And there is no direct route to the internet at all:
+
+```bash
+docker run --rm --network airlock_jobs alpine:3.19 sh -c 'wget -q -T 3 -O /dev/null http://example.com 2>&1 || echo NO-ROUTE-GOOD'
 ```
 
 Both should print the `-GOOD` line. That is the egress claim, checked rather
@@ -237,8 +256,11 @@ AIRLOCK_EGRESS_PROXY_POOL="http://p1.example:8080,http://p2.example:8080,http://
 ```bash
 AIRLOCK_EGRESS_PROXY_POOL="eu=http://eu.example:8080,us=http://us.example:8080" \
   docker compose up --build -d
+```
 
-# then pin one job to a location:
+Then pin one job to a location:
+
+```bash
 ./bin/airlock run --image airlock/agent:dev --query "hello" --egress-region eu
 ```
 
@@ -318,9 +340,11 @@ queue drained, nothing left running
 ### Confirm nothing leaked
 
 ```bash
-docker ps -aq --filter "label=airlock.managed=true" | wc -l   # want 0
-ls -1 ./data/environments | wc -l                              # want 0
+docker ps -aq --filter "label=airlock.managed=true" | wc -l
+ls -1 ./data/environments | wc -l
 ```
+
+Both should print `0`.
 
 ### Stop everything
 
@@ -411,33 +435,40 @@ Fargate driver only — all of these come from Terraform outputs (Part 5):
 
 ### The CLI
 
-```bash
-./bin/airlock run    --command <path> | --image <image> [--query <text>]  # submit and follow
-./bin/airlock run    --image <image> --egress-region eu                   # pin egress location
-./bin/airlock submit --image <image>                                      # submit, do not wait
-./bin/airlock logs   <job-id>                                             # stream logs
-./bin/airlock get    <job-id>                                             # job status
-./bin/airlock list   [--state succeeded|failed|running]                   # list jobs
-./bin/airlock stats                                                       # queue and worker state
-```
+| Command | What it does |
+|---|---|
+| `./bin/airlock run --command <path>` *or* `--image <image>` `[--query <text>]` | Submit and follow |
+| `./bin/airlock run --image <image> --egress-region eu` | Pin the egress location |
+| `./bin/airlock submit --image <image>` | Submit, do not wait |
+| `./bin/airlock logs <job-id>` | Stream logs |
+| `./bin/airlock get <job-id>` | Job status |
+| `./bin/airlock list [--state succeeded\|failed\|running]` | List jobs |
+| `./bin/airlock stats` | Queue and worker state |
 
 All accept `--server <url>` (default `http://localhost:8080`) and
 `--token <token>` when authentication is on.
 
 ### The HTTP API
 
+Submit:
+
 ```bash
-# Submit
 curl -X POST http://localhost:8080/v1/jobs \
   -H 'Content-Type: application/json' \
   -d '{"image":"airlock/agent:dev","env":{"AIRLOCK_QUERY":"hello"},"priority":"normal"}'
+```
 
-# Status, logs (server-sent events), artifacts
+Status, logs (server-sent events), artifacts:
+
+```bash
 curl http://localhost:8080/v1/jobs/<job-id>
 curl -N http://localhost:8080/v1/jobs/<job-id>/logs
 curl http://localhost:8080/v1/jobs/<job-id>/artifacts
+```
 
-# Health and capacity
+Health and capacity:
+
+```bash
 curl http://localhost:8080/healthz
 curl http://localhost:8080/readyz
 curl http://localhost:8080/v1/stats
@@ -455,10 +486,13 @@ curl http://localhost:8080/v1/stats
 | `make test-all` | all three | Everything. |
 
 ```bash
-make test        # expect: ok for every package
-make test-race   # expect: ok, and no WARNING: DATA RACE
-make test-docker # expect: ok, including 13 TestIntegration* tests
+make test
+make test-race
+make test-docker
 ```
+
+Expected: `ok` for every package; no `WARNING: DATA RACE`; and 13
+`TestIntegration*` tests in the last one.
 
 > **Read the skips.** `make test-docker` reporting `ok` while every
 > `TestIntegration*` line says `SKIP` means the tests never ran — the suite is
@@ -494,8 +528,11 @@ make test-docker # expect: ok, including 13 TestIntegration* tests
 ```bash
 export AWS_PROFILE=my-personal-profile
 export AWS_REGION=eu-west-1
+```
 
-# Confirm you are where you think you are. Check this output carefully.
+Confirm you are where you think you are, and read this output carefully:
+
+```bash
 aws sts get-caller-identity
 ```
 
@@ -525,16 +562,20 @@ One command, from the repo root. It reads the registry URLs from Terraform,
 logs Docker in, and builds for the right architecture:
 
 ```bash
-cd ../..           # back to the repo root
+cd ../..
 make aws-push TAG=v1
 ```
+
+(`cd ../..` returns you to the repo root, where the Dockerfiles live.)
 
 It prints the two image references you need for the next step. Check they are
 the architecture ECS expects:
 
 ```bash
-make aws-verify-images TAG=v1     # want: "ok: ... is arm64" twice
+make aws-verify-images TAG=v1
 ```
+
+Expected: `ok: ... is arm64`, twice.
 
 > **Why this is a `make` target and not a `docker build` you type yourself.**
 > The task definitions run on Graviton (ARM64, for the cost). An image built on
@@ -548,7 +589,6 @@ make aws-verify-images TAG=v1     # want: "ok: ... is arm64" twice
 ```bash
 cd deploy/terraform
 
-# Use the two values `make aws-push` printed.
 terraform apply \
   -var "control_plane_image=<control_plane_image from aws-push>" \
   -var "agent_image=<agent_image from aws-push>"
@@ -578,14 +618,22 @@ aws ecs update-service \
 
 ### 5.7 Check it came up
 
+Use the two image values `make aws-push` printed.
+
 ```bash
 CLUSTER=$(terraform output -raw cluster_name)
+```
 
-# Is the service running its task?
+Is the service running its task?
+
+```bash
 aws ecs describe-services --cluster "$CLUSTER" --services airlock-control-plane \
   --query 'services[0].{running:runningCount,desired:desiredCount,status:status}'
+```
 
-# What is the control plane saying?
+What is the control plane saying?
+
+```bash
 aws logs tail /airlock/dev/control-plane --follow
 ```
 
@@ -664,13 +712,12 @@ aws lambda invoke --function-name "$(terraform output -raw reaper_function_name)
 
 **Do this when you are done.** The NAT gateway bills by the hour.
 
+The bucket refuses to delete while it holds objects, on purpose. Empty it only
+when you are sure you do not want the artifacts:
+
 ```bash
 cd deploy/terraform
-
-# The bucket refuses to delete while it holds objects, on purpose. Empty it
-# only when you are sure you do not want the artifacts.
 aws s3 rm "s3://$(terraform output -raw artifact_bucket)" --recursive
-
 terraform destroy
 ```
 
@@ -724,7 +771,11 @@ File Sharing, add the path, restart Docker.
 
 ```bash
 AIRLOCK_PORT=8081 docker compose up -d
-# or, locally:
+```
+
+Or, running locally:
+
+```bash
 ./bin/airlockd --addr :8081
 ```
 

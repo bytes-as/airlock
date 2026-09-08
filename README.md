@@ -71,9 +71,11 @@ Nothing to install but Go. No cloud account, no daemon, no services.
 
 ```bash
 make build
-./bin/airlockd --data-dir ./data &        # control plane
+./bin/airlockd --data-dir ./data &
 ./bin/airlock run --command "$PWD/bin/airlock-agent" --query "site reliability"
 ```
+
+The second line starts the control plane in the background.
 
 That submits a job, streams its logs live, waits for it, and prints signed
 links to the artifacts it produced:
@@ -112,7 +114,7 @@ airlock run --image airlock/agent:dev --query "distributed systems"
 **Behaviour under load**, answered with numbers rather than an assertion:
 
 ```bash
-make load-test          # 50 concurrent submissions
+make load-test
 ```
 
 ---

@@ -67,6 +67,7 @@ type options struct {
 	artifactBucket         string
 	jobLogGroup            string
 	egressProxy            string
+	egressProxyPool        string
 	pullPolicy             string
 	submitsPerSecond       float64
 	submitBurst            float64
@@ -118,6 +119,9 @@ func parseFlags() options {
 	// --- fargate driver. Every one of these is a Terraform output; the runbook
 	// maps them one to one, and the driver refuses to start without them
 	// rather than failing later on the first job.
+	flag.StringVar(&o.egressProxyPool, "egress-proxy-pool", os.Getenv("EPHEMERA_EGRESS_PROXY_POOL"),
+		"comma-separated egress proxies to rotate jobs across, each `url` or `region=url` (e.g. \"eu=http://p-eu:8888,us=http://p-us:8888\")")
+
 	flag.StringVar(&o.ecsCluster, "ecs-cluster", os.Getenv("EPHEMERA_ECS_CLUSTER"), "ECS cluster for the fargate driver")
 	flag.StringVar(&o.jobTaskDefinition, "job-task-definition", os.Getenv("EPHEMERA_JOB_TASK_DEFINITION"), "ECS task definition family for job tasks")
 	flag.StringVar(&o.jobContainerName, "job-container-name", envOr("EPHEMERA_JOB_CONTAINER_NAME", "agent"), "container name inside the job task definition")
@@ -401,6 +405,31 @@ func buildFargateDriver(opts options) (driver.Driver, error) {
 	)
 }
 
+// parseProxyPool reads "url" or "region=url" entries.
+//
+// A URL contains "://" and a region label does not, which is what makes the
+// two forms distinguishable without a second flag. Malformed entries are
+// dropped rather than silently treated as a region named "http", because a
+// proxy nobody can reach is worse than one that is absent.
+func parseProxyPool(v string) []docker.EgressProxy {
+	var pool []docker.EgressProxy
+	for _, entry := range strings.Split(v, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		region, url := "", entry
+		if name, rest, found := strings.Cut(entry, "="); found && !strings.Contains(name, "://") {
+			region, url = strings.TrimSpace(name), strings.TrimSpace(rest)
+		}
+		if url == "" {
+			continue
+		}
+		pool = append(pool, docker.EgressProxy{URL: url, Region: region})
+	}
+	return pool
+}
+
 // splitList parses a comma-separated flag, ignoring blanks so a trailing comma
 // or an empty Terraform output does not become an empty-string subnet ID.
 func splitList(v string) []string {
@@ -423,6 +452,7 @@ func buildDriver(opts options, dataDir string) (driver.Driver, error) {
 		cfg.Host = opts.dockerHost
 		cfg.Network = opts.dockerNetwork
 		cfg.ProxyURL = opts.egressProxy
+		cfg.ProxyPool = parseProxyPool(opts.egressProxyPool)
 		cfg.PullPolicy = opts.pullPolicy
 		// Keep artifacts under the data directory rather than the OS temp dir,
 		// so everything this daemon writes has one root to inspect and clean.

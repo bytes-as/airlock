@@ -487,3 +487,147 @@ func contains(values []string, needle string) bool {
 }
 
 var _ = os.Getenv
+
+// TestIntegrationJobsCannotSeeEachOthersFilesystems is the multi-tenancy claim,
+// checked rather than asserted.
+//
+// Filesystem isolation between two jobs is the one property in this area that
+// container namespaces genuinely deliver, so it should be held by a test rather
+// than by a paragraph. Job A writes a file everywhere it is allowed to write;
+// job B goes looking for it in the same paths and must find nothing.
+//
+// What this does NOT prove is memory isolation. These two containers share a
+// kernel, so a kernel exploit crosses between them. That boundary needs a
+// hypervisor, which Fargate provides per task and this driver does not. Saying
+// so here keeps the test honest about its own scope.
+func TestIntegrationJobsCannotSeeEachOthersFilesystems(t *testing.T) {
+	d := newTestDriver(t, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	const marker = "tenant-a-secret-payload"
+
+	// Job A writes into every writable location it has.
+	specA := specFor([]string{"sh", "-c",
+		"printf '" + marker + "' > /artifacts/leak.txt && " +
+			"printf '" + marker + "' > /tmp/leak.txt && " +
+			"echo A_WROTE"}, time.Minute)
+	specA.TenantID = "tenant-a"
+
+	envA, err := d.Create(ctx, specA)
+	if err != nil {
+		t.Fatalf("Create A: %v", err)
+	}
+	cleanup(t, d, envA)
+	if err := d.Start(ctx, envA, specA); err != nil {
+		t.Fatalf("Start A: %v", err)
+	}
+	if _, err := d.Wait(ctx, envA); err != nil {
+		t.Fatalf("Wait A: %v", err)
+	}
+
+	// Job B, a different tenant, looks for it in the same paths.
+	specB := specFor([]string{"sh", "-c",
+		"cat /artifacts/leak.txt 2>/dev/null; cat /tmp/leak.txt 2>/dev/null; echo B_DONE"}, time.Minute)
+	specB.TenantID = "tenant-b"
+
+	envB, err := d.Create(ctx, specB)
+	if err != nil {
+		t.Fatalf("Create B: %v", err)
+	}
+	cleanup(t, d, envB)
+	if err := d.Start(ctx, envB, specB); err != nil {
+		t.Fatalf("Start B: %v", err)
+	}
+
+	lines, err := d.Logs(ctx, envB)
+	if err != nil {
+		t.Fatalf("Logs B: %v", err)
+	}
+	var output []string
+	for line := range lines {
+		output = append(output, line.Text)
+	}
+
+	if !contains(output, "B_DONE") {
+		t.Fatalf("job B did not run to completion: %v", output)
+	}
+	if contains(output, marker) {
+		t.Fatalf("job B read job A's data - filesystem isolation is broken: %v", output)
+	}
+
+	// And A's artifacts are not reachable through B's collection path either.
+	collected, err := d.Collect(ctx, envB, t.TempDir())
+	if err != nil {
+		t.Fatalf("Collect B: %v", err)
+	}
+	for _, a := range collected {
+		if strings.Contains(a.Name, "leak") {
+			t.Errorf("job A's artifact %q surfaced in job B's collection", a.Name)
+		}
+	}
+}
+
+// TestIntegrationEgressRotationReachesTheContainer proves the rotation is real
+// where it matters: inside the environment.
+//
+// The unit tests cover the selection arithmetic. This one covers the part that
+// silently breaks in a different way - the chosen proxy actually arriving in
+// the process's environment - by running two jobs and reading back what each
+// one saw.
+//
+// It uses the compose `ephemera_jobs` network when present, since proxied mode
+// requires a configured internal network, and skips otherwise rather than
+// pretending to have tested something.
+func TestIntegrationEgressRotationReachesTheContainer(t *testing.T) {
+	d := newTestDriver(t, func(cfg *Config) {
+		cfg.Network = "ephemera_jobs"
+		cfg.ProxyPool = []EgressProxy{
+			{URL: "http://egress-proxy:8888", Region: "eu"},
+			{URL: "http://egress-proxy-b:8888", Region: "us"},
+		}
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	seen := make([]string, 0, 2)
+	for i := 0; i < 2; i++ {
+		spec := specFor([]string{"printenv", "HTTP_PROXY"}, time.Minute)
+		spec.Network = driver.NetworkPolicy{Mode: driver.NetworkProxied}
+
+		env, err := d.Create(ctx, spec)
+		if err != nil {
+			var unsupported *driver.UnsupportedError
+			if errors.As(err, &unsupported) {
+				t.Skipf("proxied networking unavailable here: %v", err)
+			}
+			t.Fatalf("Create %d: %v", i, err)
+		}
+		cleanup(t, d, env)
+		if err := d.Start(ctx, env, spec); err != nil {
+			t.Fatalf("Start %d: %v", i, err)
+		}
+
+		lines, err := d.Logs(ctx, env)
+		if err != nil {
+			t.Fatalf("Logs %d: %v", i, err)
+		}
+		var out []string
+		for line := range lines {
+			out = append(out, strings.TrimSpace(line.Text))
+		}
+		if len(out) == 0 {
+			t.Fatalf("job %d produced no output", i)
+		}
+		seen = append(seen, out[0])
+	}
+
+	for i, got := range seen {
+		if !strings.HasPrefix(got, "http://egress-proxy") {
+			t.Fatalf("job %d did not receive a proxy: %q", i, got)
+		}
+	}
+	if seen[0] == seen[1] {
+		t.Errorf("both jobs egressed through %s; rotation did not happen", seen[0])
+	}
+}

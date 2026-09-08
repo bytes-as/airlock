@@ -7,7 +7,16 @@ One job, one disposable environment: provision it, run an agent inside it,
 stream the output, collect the artifacts, and destroy it — with the destruction
 guaranteed by three independent layers rather than by remembering to call
 cleanup. The agent here is a placeholder that opens a "browser", searches and
-saves a screenshot; everything wrapping it is the system.
+saves a screenshot. It drives a **real headless Chromium**: a real page load,
+through the platform's egress proxy, producing a real PNG. The agent is still
+deliberately simple — the infrastructure around it is the work — but it is not a
+mock, so the proxy, the artifact pipeline and the resource limits are all
+exercised by something that behaves like the real thing.
+
+On a machine with no browser installed it falls back to a generated image and
+says so, in the logs and in `result.json`. That keeps `make test` fast and
+dependency-free; the container image ships Chromium, so the path a reader
+actually runs is the real one.
 
 The same core runs anything you would rather not run on your own machine:
 computer-use agents, untrusted user code, CI jobs, LLM tool sandboxes.
@@ -67,11 +76,14 @@ links to the artifacts it produced:
 submitted job_06g83mdz1ns0r2219cppsp0gg0 (priority 90)
 * provisioning process environment
 * agent started
-  step 1/4: launching browser
-  step 2/4: navigating and searching for "site reliability"
-  step 3/4: waiting for results to settle
+  browser available: /usr/bin/chromium-browser
+  step 1/4: preparing session
   step 4/4: capturing page state
-  saved screenshot.png (1314 bytes) and result.json
+  launching /usr/bin/chromium-browser
+  browser egressing via http://egress-proxy:8888
+  navigating to https://example.com/?q=site+reliability
+  captured screenshot.png (22008 bytes)
+  saved screenshot.png (via browser) and result.json
 * stored 2 artifact(s)
 
 job          job_06g83mdz1ns0r2219cppsp0gg0
@@ -186,8 +198,32 @@ all**, and an agent that reads its credentials from the metadata endpoint gets
 credentials that can do nothing. Claiming a security group solved this would be
 a wrong answer that looks right.
 
-*Bonus (IP rotation / geo simulation):* the proxy hop exists and is the correct
-insertion point — point `--egress-proxy` at a rotating pool. Not implemented.
+*Bonus — IP rotation and geographic simulation.* `--egress-proxy-pool` takes a
+set of egress points and spreads jobs across them round-robin, each optionally
+labelled with a region:
+
+```bash
+--egress-proxy-pool "eu=http://p-eu:8888,us=http://p-us:8888"
+```
+
+A job may then ask to appear somewhere specific, and **a request for a region
+the pool cannot serve is refused** rather than quietly egressed from wherever is
+convenient — a caller who asked for Frankfurt, silently got Virginia, and
+believed the result has been given something worse than an error. The selected
+region is injected as `EPHEMERA_EGRESS_REGION` so a run's own logs record where
+it went out.
+
+Round-robin rather than random, because with a small pool random selection
+visibly clusters and "why did nine of my ten jobs come from one address" is a
+question nobody should have to ask about a rotation feature.
+
+**What this is and is not.** Rotating the *route* is what this code does, and it
+is tested: an integration test runs two jobs and asserts they left through
+different proxies. Having genuinely different *addresses* is infrastructure, not
+code — a NAT gateway per availability zone, or a commercial proxy pool. Compose
+ships two proxies so the mechanism is visible, but both leave a laptop through
+the same address. The `fargate` driver refuses region requests outright: its
+tasks leave through one NAT gateway whose location it does not choose.
 
 ### 2. Concurrency and scheduling
 
@@ -324,6 +360,12 @@ the container cannot be collected after the job — or after a crash, which is
 when it is most worth having. It is removed on `Destroy` alongside the
 container.
 
+**Filesystem isolation between tenants is tested, not asserted.** An integration
+test has job A write a marker into every location it can, then has job B — a
+different tenant — go looking for it in the same paths and through its own
+artifact collection. Separate mount namespaces, a read-only root, a per-job
+tmpfs and a per-job artifact mount are what make it hold.
+
 **Honestly**: containers share a kernel. This is not total memory isolation
 between tenants — that needs a hypervisor boundary. Fargate provides one;
 gVisor or Firecracker would too.
@@ -449,6 +491,9 @@ README worthless. So, plainly:
 | 50 concurrent jobs, bounded concurrency, zero leaks | ✅ measured |
 | Failure taxonomy, deadlines, retries, reaping | ✅ tested, including crash and hang paths |
 | Secret non-leakage, signed URLs, path traversal | ✅ tested |
+| Filesystem isolation between tenants | ✅ tested — job B cannot read job A's files |
+| Egress rotation across a proxy pool | ✅ tested — two jobs, two different egress points |
+| Real browser capture through the egress proxy | ✅ verified — headless Chromium, real page, 22 KB PNG |
 | HTTP API, SSE streaming, signed downloads | ✅ tested and exercised live |
 | `docker` driver | ✅ integration suite executed against a live daemon — 11/11 |
 | Race detector | ✅ clean — `-race` across every package, no data races |

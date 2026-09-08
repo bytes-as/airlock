@@ -69,7 +69,7 @@ signed artifact links:
 submitted job_06g83mdz1ns0r2219cppsp0gg0 (priority 50)
 * provisioning process environment
 * agent started
-  step 1/4: launching browser
+  step 1/4: preparing session
   ...
 * stored 2 artifact(s)
 
@@ -92,6 +92,13 @@ Stop it and clean up:
 kill %1
 make clean
 ```
+
+> **About the browser.** The agent drives a real headless Chromium and captures
+> a real page. That browser ships in the *container* image, so this step — which
+> runs the agent directly on your host via the `process` driver — falls back to
+> a generated image unless you have `chromium` on your PATH. It says which in
+> the logs and in `result.json` (`"screenshot_via"`). For the real capture, use
+> the Docker stack in Part 2.
 
 > **What this does and does not prove.** This uses the `process` driver, which
 > runs the agent as a plain subprocess. It exercises the whole pipeline —
@@ -144,8 +151,26 @@ ephemera-egress-proxy-1    Up 10 seconds            8888/tcp
   --server http://localhost:8080
 ```
 
-You should see the same live log stream as Part 1, but the agent is now running
-in its own container with no route to the internet except through the proxy.
+You should see the same live log stream as Part 1, with two differences that
+matter: the agent runs in **its own container** (one per job, exactly as one
+Fargate task per job would), and it drives a **real headless Chromium** whose
+traffic leaves through the egress proxy:
+
+```
+browser egressing via http://egress-proxy:8888
+captured screenshot.png (22008 bytes) from https://example.com/?q=...
+saved screenshot.png (via browser) and result.json
+```
+
+`result.json` records `"screenshot_via": "browser"`, so an artifact can always
+be traced back to how it was produced. Point the agent elsewhere with
+`EPHEMERA_URL`.
+
+Watch the per-job container appear and disappear while a job runs:
+
+```bash
+watch -n0.5 'docker ps --filter "label=ephemera.managed=true" --format "{{.Names}} {{.Status}}"'
+```
 
 ### Prove the egress control (the security claim)
 
@@ -161,6 +186,28 @@ docker run --rm --network ephemera_jobs alpine:3.19 \
 
 Both should print the `-GOOD` line. That is the egress claim, checked rather
 than asserted.
+
+### See egress rotation
+
+The compose stack runs two egress proxies so jobs rotate between them. Prove it:
+
+```bash
+go test -tags docker ./internal/driver/docker/ -run EgressRotationReaches -v
+```
+
+It runs two jobs and asserts they left through different proxies. Both still
+leave your laptop through the same address — rotating the *route* is what the
+code does; genuinely different addresses are infrastructure (a NAT gateway per
+availability zone, or a commercial pool).
+
+### See tenant filesystem isolation
+
+```bash
+go test -tags docker ./internal/driver/docker/ -run CannotSeeEachOthers -v
+```
+
+Job A writes a marker everywhere it can; job B, a different tenant, looks for it
+in the same paths and must find nothing.
 
 ### Behaviour under load: 50 concurrent jobs
 
@@ -262,6 +309,7 @@ Docker driver only:
 |---|---|---|
 | `--docker-network` | `EPHEMERA_DOCKER_NETWORK` | Network job containers join. Use an `internal` network for egress control. |
 | `--egress-proxy` | `EPHEMERA_EGRESS_PROXY` | Proxy URL injected into jobs on an internal network. |
+| `--egress-proxy-pool` | `EPHEMERA_EGRESS_PROXY_POOL` | Egress points to rotate jobs across, `url` or `region=url`, comma-separated. e.g. `eu=http://p-eu:8888,us=http://p-us:8888` |
 | `--pull-policy` | `EPHEMERA_PULL_POLICY` | `always`, `if-missing` or `never`. |
 
 Fargate driver only — all of these come from Terraform outputs (Part 5):

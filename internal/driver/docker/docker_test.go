@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -372,7 +373,7 @@ func TestProxyIsInjectedOnlyWhenProxied(t *testing.T) {
 	proxied := d.buildEnv(driver.EnvSpec{
 		JobID:   "job_1",
 		Network: driver.NetworkPolicy{Mode: driver.NetworkProxied},
-	})
+	}, EgressProxy{URL: "http://egress-proxy:3128"})
 	if !containsPrefix(proxied, "HTTP_PROXY=http://egress-proxy:3128") {
 		t.Errorf("proxy not injected for proxied mode: %v", proxied)
 	}
@@ -384,7 +385,7 @@ func TestProxyIsInjectedOnlyWhenProxied(t *testing.T) {
 	plain := d.buildEnv(driver.EnvSpec{
 		JobID:   "job_1",
 		Network: driver.NetworkPolicy{Mode: driver.NetworkEgress},
-	})
+	}, EgressProxy{URL: "http://egress-proxy:3128"})
 	if containsPrefix(plain, "HTTP_PROXY=") {
 		t.Errorf("proxy injected for a non-proxied job: %v", plain)
 	}
@@ -398,7 +399,7 @@ func TestBuildEnvCarriesJobContextAndSecrets(t *testing.T) {
 		TenantID: "tenant-a",
 		Env:      map[string]string{"PUBLIC": "visible"},
 		Secrets:  map[string]job.Secret{"API_TOKEN": job.Secret("sk-live-secret-value")},
-	})
+	}, EgressProxy{})
 
 	for _, want := range []string{
 		"EPHEMERA_JOB_ID=job_42",
@@ -586,3 +587,150 @@ func containsPrefix(values []string, prefix string) bool {
 }
 
 var _ = time.Now
+
+// --- egress rotation -------------------------------------------------------
+
+func poolDriver(pool ...EgressProxy) *Driver {
+	return &Driver{cfg: Config{Network: "ephemera-internal", ProxyPool: pool}}
+}
+
+// TestProxyRotationIsRoundRobin: with a small pool, random selection visibly
+// clusters, and "why did nine of my ten jobs come from one address" is a
+// question nobody should have to ask about a rotation feature.
+func TestProxyRotationIsRoundRobin(t *testing.T) {
+	d := poolDriver(
+		EgressProxy{URL: "http://p1:8888"},
+		EgressProxy{URL: "http://p2:8888"},
+		EgressProxy{URL: "http://p3:8888"},
+	)
+
+	var got []string
+	for i := 0; i < 7; i++ {
+		p, err := d.selectProxy(driver.NetworkPolicy{Mode: driver.NetworkProxied})
+		if err != nil {
+			t.Fatalf("selectProxy: %v", err)
+		}
+		got = append(got, p.URL)
+	}
+
+	want := []string{
+		"http://p1:8888", "http://p2:8888", "http://p3:8888",
+		"http://p1:8888", "http://p2:8888", "http://p3:8888",
+		"http://p1:8888",
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("selection %d = %s, want %s (sequence: %v)", i, got[i], want[i], got)
+		}
+	}
+}
+
+// TestProxyRotationIsConcurrencySafe: Create runs on every worker goroutine at
+// once, so the cursor must not lose or duplicate its way through the pool.
+func TestProxyRotationIsConcurrencySafe(t *testing.T) {
+	const pool, calls = 4, 400
+	d := poolDriver(
+		EgressProxy{URL: "http://p0:8888"},
+		EgressProxy{URL: "http://p1:8888"},
+		EgressProxy{URL: "http://p2:8888"},
+		EgressProxy{URL: "http://p3:8888"},
+	)
+
+	var mu sync.Mutex
+	counts := map[string]int{}
+	var wg sync.WaitGroup
+	for i := 0; i < calls; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			p, err := d.selectProxy(driver.NetworkPolicy{Mode: driver.NetworkProxied})
+			if err != nil {
+				t.Errorf("selectProxy: %v", err)
+				return
+			}
+			mu.Lock()
+			counts[p.URL]++
+			mu.Unlock()
+		}()
+	}
+	wg.Wait()
+
+	// An atomic cursor distributes exactly evenly; a racy one does not.
+	for url, n := range counts {
+		if n != calls/pool {
+			t.Errorf("%s selected %d times, want %d - the cursor raced", url, n, calls/pool)
+		}
+	}
+}
+
+// TestProxyRegionIsHonoured: a caller asking to appear somewhere specific must
+// get that or an error, never a silent substitution.
+func TestProxyRegionIsHonoured(t *testing.T) {
+	d := poolDriver(
+		EgressProxy{URL: "http://eu1:8888", Region: "eu"},
+		EgressProxy{URL: "http://us1:8888", Region: "us"},
+		EgressProxy{URL: "http://eu2:8888", Region: "eu"},
+	)
+
+	for i := 0; i < 4; i++ {
+		p, err := d.selectProxy(driver.NetworkPolicy{Mode: driver.NetworkProxied, EgressRegion: "eu"})
+		if err != nil {
+			t.Fatalf("selectProxy: %v", err)
+		}
+		if p.Region != "eu" {
+			t.Fatalf("got region %q for an eu request", p.Region)
+		}
+	}
+}
+
+// TestProxyUnservableRegionIsRefused is the honesty rule applied to geography.
+// Egressing from Virginia for a caller who asked for Frankfurt is worse than an
+// error, because they will believe the result.
+func TestProxyUnservableRegionIsRefused(t *testing.T) {
+	d := poolDriver(
+		EgressProxy{URL: "http://eu1:8888", Region: "eu"},
+		EgressProxy{URL: "http://us1:8888", Region: "us"},
+	)
+
+	_, err := d.selectProxy(driver.NetworkPolicy{Mode: driver.NetworkProxied, EgressRegion: "ap"})
+	var unsupported *driver.UnsupportedError
+	if !errors.As(err, &unsupported) {
+		t.Fatalf("want UnsupportedError for an unservable region, got %v", err)
+	}
+	// The refusal must name what *is* available, or the caller is left guessing.
+	if !strings.Contains(err.Error(), "eu") || !strings.Contains(err.Error(), "us") {
+		t.Errorf("refusal does not name the configured regions: %v", err)
+	}
+}
+
+// TestSingleProxyBecomesAPoolOfOne: the two configuration styles must not drift
+// into two selection paths that can disagree.
+func TestSingleProxyBecomesAPoolOfOne(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.ProxyURL = "http://only:8888"
+	d := &Driver{cfg: cfg}
+	if len(d.cfg.ProxyPool) == 0 && d.cfg.ProxyURL != "" {
+		d.cfg.ProxyPool = []EgressProxy{{URL: d.cfg.ProxyURL}}
+	}
+
+	p, err := d.selectProxy(driver.NetworkPolicy{Mode: driver.NetworkProxied})
+	if err != nil {
+		t.Fatalf("selectProxy: %v", err)
+	}
+	if p.URL != "http://only:8888" {
+		t.Errorf("URL = %q", p.URL)
+	}
+}
+
+// TestEgressRegionIsRecordedForTheAgent: a run's own logs should say where it
+// egressed from, or "this looked different today" is unanswerable.
+func TestEgressRegionIsRecordedForTheAgent(t *testing.T) {
+	d := &Driver{cfg: DefaultConfig()}
+	env := d.buildEnv(
+		driver.EnvSpec{JobID: "job_1", Network: driver.NetworkPolicy{Mode: driver.NetworkProxied}},
+		EgressProxy{URL: "http://eu1:8888", Region: "eu-west-1"},
+	)
+	if !containsPrefix(env, "EPHEMERA_EGRESS_REGION=eu-west-1") {
+		t.Errorf("egress region not recorded in the environment: %v", env)
+	}
+}

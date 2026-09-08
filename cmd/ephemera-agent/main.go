@@ -68,6 +68,7 @@ func main() {
 		stepDelay = flag.Duration("step-delay", envDurationOr("EPHEMERA_STEP_DELAY", 300*time.Millisecond), "pause between steps")
 		failAt    = flag.Int("fail-at", envIntOr("EPHEMERA_FAIL_AT", 0), "fail deliberately at this step (0 never)")
 		hang      = flag.Bool("hang", os.Getenv("EPHEMERA_HANG") == "1", "hang forever, to exercise the reaper")
+		browserTO = flag.Duration("browser-timeout", envDurationOr("EPHEMERA_BROWSER_TIMEOUT", 45*time.Second), "how long the browser may take to load the page and capture it")
 		showVer   = flag.Bool("version", false, "print version and exit")
 	)
 	flag.Parse()
@@ -99,6 +100,14 @@ func main() {
 	uploadURL = os.Getenv("EPHEMERA_ARTIFACT_UPLOAD_URL")
 
 	logf("agent %s starting", version)
+	// Say which mode this run is in, every run. A real capture and a generated
+	// one produce the same filename, and confusing the two is the kind of thing
+	// that makes someone distrust every other artifact the system produced.
+	if browser := findBrowser(); browser != "" {
+		logf("browser available: %s", browser)
+	} else {
+		logf("no browser on PATH; screenshots will be generated images, not captures")
+	}
 	logf("job=%s tenant=%s task=%s", orDash(jobID), orDash(tenant), *task)
 
 	if artifactDir == "" {
@@ -127,7 +136,7 @@ func main() {
 	}
 
 	if artifactDir != "" {
-		if err := writeArtifacts(artifactDir, *task, *query, *steps); err != nil {
+		if err := writeArtifacts(artifactDir, *task, *query, *steps, *browserTO); err != nil {
 			errorf("could not write artifacts: %v", err)
 			finish(1)
 		}
@@ -140,11 +149,11 @@ func main() {
 func describeStep(step int, query string) string {
 	switch step {
 	case 1:
-		return "launching browser"
+		return "preparing session"
 	case 2:
-		return fmt.Sprintf("navigating and searching for %q", query)
+		return fmt.Sprintf("preparing search for %q", query)
 	case 3:
-		return "waiting for results to settle"
+		return "settling"
 	default:
 		return "capturing page state"
 	}
@@ -152,21 +161,19 @@ func describeStep(step int, query string) string {
 
 // writeArtifacts produces what a real computer-use agent would leave behind:
 // a screenshot and a structured result.
-func writeArtifacts(dir, task, query string, steps int) error {
-	shot, err := renderScreenshot(query)
-	if err != nil {
-		return fmt.Errorf("render screenshot: %w", err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "screenshot.png"), shot, 0o640); err != nil {
-		return err
-	}
+func writeArtifacts(dir, task, query string, steps int, budget time.Duration) error {
+	// Real browser when one is present, generated image otherwise. Which one
+	// happened is recorded below, because an artifact nobody can trace back to
+	// how it was made is an artifact nobody should trust.
+	method := captureScreenshot(dir, query, budget)
 
 	result := map[string]any{
-		"task":         task,
-		"query":        query,
-		"steps":        steps,
-		"completed_at": time.Now().UTC().Format(time.RFC3339),
-		"agent":        "ephemera-agent/" + version,
+		"task":           task,
+		"query":          query,
+		"steps":          steps,
+		"completed_at":   time.Now().UTC().Format(time.RFC3339),
+		"agent":          "ephemera-agent/" + version,
+		"screenshot_via": method,
 	}
 	encoded, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
@@ -176,8 +183,20 @@ func writeArtifacts(dir, task, query string, steps int) error {
 		return err
 	}
 
-	logf("saved screenshot.png (%d bytes) and result.json", len(shot))
+	logf("saved screenshot.png (via %s) and result.json", method)
 	return nil
+}
+
+// writeGeneratedScreenshot renders a PNG without a browser and writes it to
+// path. The fallback path, used when no browser is installed or the capture
+// failed; the run still produces a real binary artifact so everything
+// downstream of it is exercised.
+func writeGeneratedScreenshot(path, query string) error {
+	shot, err := renderScreenshot(query)
+	if err != nil {
+		return fmt.Errorf("render screenshot: %w", err)
+	}
+	return os.WriteFile(path, shot, 0o640)
 }
 
 // renderScreenshot produces a real PNG.

@@ -35,6 +35,13 @@ services:
       EPHEMERA_WORKERS: "${EPHEMERA_WORKERS:-8}"
       EPHEMERA_DOCKER_NETWORK: "ephemera_jobs"
       EPHEMERA_EGRESS_PROXY: "http://egress-proxy:8888"
+      # Two egress points, so jobs rotate between them and the rotation is
+      # something a reader can watch rather than take on trust. Both leave this
+      # machine through the same address - rotating the *route* is what this
+      # code does; having genuinely different addresses is infrastructure
+      # (a NAT gateway per AZ, or a commercial pool) that a laptop cannot
+      # provide. The region labels are honest stand-ins for that.
+      EPHEMERA_EGRESS_PROXY_POOL: "${EPHEMERA_EGRESS_PROXY_POOL:-eu=http://egress-proxy:8888,us=http://egress-proxy-b:8888}"
       EPHEMERA_BASE_URL: "http://localhost:${EPHEMERA_PORT:-8080}"
       # A stable key keeps artifact links valid across restarts. Generated per
       # run if unset, which is fine locally and wrong in production.
@@ -130,6 +137,21 @@ services:
     networks:
       - jobs    # reachable by job containers
       - egress  # has internet access
+    restart: unless-stopped
+
+  # A second egress point, identical but separately addressed, so
+  # --egress-proxy-pool has something real to rotate across.
+  egress-proxy-b:
+    build:
+      context: .
+      dockerfile: Dockerfile.proxy
+    image: ephemera/egress-proxy:${VERSION:-dev}
+    volumes:
+      - ./deploy/compose/tinyproxy.conf:/etc/tinyproxy/tinyproxy.conf:ro
+      - ./deploy/compose/filter:/etc/tinyproxy/filter:ro
+    networks:
+      - jobs
+      - egress
     restart: unless-stopped
 
 networks:

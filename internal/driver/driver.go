@@ -197,6 +197,15 @@ type NetworkPolicy struct {
 
 	// ProxyURL is the upstream proxy for NetworkProxied.
 	ProxyURL string
+
+	// EgressRegion asks for an egress point in a particular location, which is
+	// how a caller simulates browsing from somewhere else. Empty means any.
+	//
+	// A driver that cannot honour a specific region must refuse the spec rather
+	// than quietly egress from wherever it likes: a caller who asked to appear
+	// in Frankfurt and silently appeared in Virginia has been given a worse
+	// answer than an error, because they will believe the result.
+	EgressRegion string
 }
 
 // DefaultDenyCIDRs are blocked for every networked environment unless a caller

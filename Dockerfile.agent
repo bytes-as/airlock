@@ -1,20 +1,27 @@
 # Agent image: what actually runs inside a job's container.
 #
-# The image is deliberately minimal. It is the blast radius of an agent
-# compromise, and every binary in it is a tool an attacker inherits. The
-# placeholder agent needs nothing but itself.
+# This image carries a real headless Chromium, because the agent takes real
+# screenshots of real pages. That is a deliberate trade and worth stating:
 #
-# To swap in a real computer-use agent (Playwright, a browser, a model client),
-# replace the runtime stage with an image carrying those dependencies. The
-# contract with the platform is entirely environmental and does not change:
+#   - The image is ~450 MB rather than ~10 MB. A browser is most of that.
+#   - The blast radius of an agent compromise is now everything in this image,
+#     which is why the platform around it drops all capabilities, mounts the
+#     root filesystem read-only, runs as a non-root uid, and gives the container
+#     no route to the internet except the egress proxy.
+#
+# The contract with the platform is entirely environmental and unchanged:
 #
 #   EPHEMERA_JOB_ID        the job this run belongs to
 #   EPHEMERA_TENANT_ID     the tenant it belongs to
 #   EPHEMERA_ARTIFACT_DIR  where to write outputs (collected after exit)
+#   HTTP_PROXY/HTTPS_PROXY the only way out; passed to Chromium as
+#                          --proxy-server, which is what makes the platform's
+#                          egress rotation apply to real browser traffic
 #   stdout / stderr        streamed live to viewers
 #   exit code              0 succeeded, non-zero failed
 #
-# Anything satisfying that contract is a valid agent.
+# Anything satisfying that contract is a valid agent. Swapping Chromium for
+# Playwright or a model client is a change to this file and nothing else.
 
 FROM golang:1.27-alpine AS build
 
@@ -31,13 +38,35 @@ RUN CGO_ENABLED=0 go build \
         -ldflags "-s -w -X main.version=${VERSION}" \
         -o /out/ephemera-agent ./cmd/ephemera-agent
 
-FROM gcr.io/distroless/static-debian12:nonroot
+# --- runtime ---
+#
+# Alpine rather than distroless: the agent now needs a browser, and a browser
+# needs a libc, fontconfig and a font. Distroless static cannot carry any of it.
+FROM alpine:3.19
 
-COPY --from=build /out/ephemera-agent /usr/local/bin/ephemera-agent
+# chromium      the browser itself
+# font-noto     without a font, every captured page renders as empty boxes -
+#               a screenshot that looks like a bug in the platform rather than
+#               a missing package
+# ca-certificates  TLS through the egress proxy fails without a trust store
+RUN apk add --no-cache \
+        chromium \
+        font-noto \
+        ca-certificates \
+    && rm -rf /var/cache/apk/*
 
 # The driver runs containers as 65534:65534 with a read-only root filesystem
 # and all capabilities dropped, so the agent must not assume it can write
-# anywhere except EPHEMERA_ARTIFACT_DIR and /tmp, both of which are tmpfs.
+# anywhere except EPHEMERA_ARTIFACT_DIR and /tmp, both of which are writable
+# mounts the platform provides.
+#
+# HOME points at /tmp because Chromium writes preference and crash state to it
+# whatever --user-data-dir says, and everything else is read-only.
+ENV HOME=/tmp \
+    EPHEMERA_BROWSER=chromium-browser
+
+COPY --from=build /out/ephemera-agent /usr/local/bin/ephemera-agent
+
 USER 65534:65534
 
 ENTRYPOINT ["/usr/local/bin/ephemera-agent"]

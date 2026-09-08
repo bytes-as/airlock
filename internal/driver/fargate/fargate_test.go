@@ -658,3 +658,21 @@ func TestCapabilitiesAreHonest(t *testing.T) {
 		t.Error("List reads from ECS, so orphans must be recoverable after a restart")
 	}
 }
+
+// TestCreateRefusesAnEgressRegionItCannotHonour: tasks leave through the VPC's
+// NAT gateway, whose location this driver does not choose. Silently egressing
+// from the wrong place is worse than refusing.
+func TestCreateRefusesAnEgressRegionItCannotHonour(t *testing.T) {
+	d := testDriver(t, &fakeECS{}, &fakeLogs{}, &fakeObjects{})
+	spec := specFor()
+	spec.Network.EgressRegion = "ap-southeast-2"
+
+	_, err := d.Create(context.Background(), spec)
+	var unsupported *driver.UnsupportedError
+	if !errors.As(err, &unsupported) {
+		t.Fatalf("want UnsupportedError, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "docker") {
+		t.Errorf("refusal should name the driver that can do this: %v", err)
+	}
+}

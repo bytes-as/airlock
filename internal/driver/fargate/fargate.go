@@ -297,6 +297,18 @@ func (d *Driver) checkNetwork(policy driver.NetworkPolicy) error {
 			Feature: "network isolation (awsvpc always attaches an ENI; use the docker driver for a truly network-less environment)",
 		}
 	case driver.NetworkEgress, driver.NetworkProxied, "":
+		// Egress here leaves through the VPC's NAT gateway, whose address this
+		// driver does not choose. Honouring a specific region would mean a NAT
+		// gateway (and its own address) per region and routing tasks to the
+		// matching subnet - real work, not a config change. Until that exists,
+		// refuse rather than egress from wherever the VPC happens to be and let
+		// the caller believe otherwise.
+		if policy.EgressRegion != "" {
+			return &driver.UnsupportedError{
+				Driver:  d.Name(),
+				Feature: fmt.Sprintf("egress from region %q (tasks leave through this VPC's NAT gateway; the docker driver can rotate across a proxy pool)", policy.EgressRegion),
+			}
+		}
 		return nil
 	default:
 		return &driver.UnsupportedError{Driver: d.Name(), Feature: string(policy.Mode)}

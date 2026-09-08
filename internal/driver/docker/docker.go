@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/bytes-as/ephemera/internal/driver"
@@ -52,7 +53,21 @@ type Config struct {
 
 	// ProxyURL, when set, is injected as HTTP_PROXY/HTTPS_PROXY so an agent on
 	// an internal network can still reach the internet through a controlled hop.
+	//
+	// Equivalent to a ProxyPool of one. Kept because a single proxy is the
+	// common case and should not require building a slice.
 	ProxyURL string
+
+	// ProxyPool is the set of egress points jobs are spread across, which is
+	// what makes IP rotation and geographic simulation possible.
+	//
+	// The rotation itself is trivial - pick a different upstream per job. What
+	// is not trivial, and not this code's job, is *having* egress points with
+	// genuinely different addresses: that is one NAT gateway per availability
+	// zone, or a commercial proxy pool, or an appliance per region. This driver
+	// selects between whatever it is given and refuses to pretend it has more
+	// variety than it does.
+	ProxyPool []EgressProxy
 
 	// NoProxyHosts are exempted from the proxy, e.g. an in-cluster service.
 	NoProxyHosts string
@@ -88,6 +103,18 @@ type Config struct {
 	ArtifactRoot string
 }
 
+// EgressProxy is one upstream a job's traffic can be routed through.
+type EgressProxy struct {
+	// URL is the proxy address, e.g. "http://egress-eu:8888".
+	URL string
+
+	// Region labels where this proxy egresses from. Free-form - "eu-west-1",
+	// "de", "residential-uk" - and matched exactly against a spec's
+	// EgressRegion. Empty means the proxy is usable for any region-agnostic
+	// job but can never satisfy a specific request.
+	Region string
+}
+
 // DefaultConfig returns settings suitable for running untrusted agents.
 func DefaultConfig() Config {
 	return Config{
@@ -109,6 +136,11 @@ type Driver struct {
 	mu        sync.Mutex
 	pulled    map[string]bool
 	networkOK bool
+
+	// proxyCursor rotates through the pool. Atomic rather than mutex-guarded
+	// because it is incremented on every Create from every worker goroutine and
+	// contends with nothing else.
+	proxyCursor atomic.Uint64
 }
 
 // Option configures a Driver.
@@ -138,6 +170,12 @@ func New(cfg Config, opts ...Option) (*Driver, error) {
 	}
 	for _, opt := range opts {
 		opt(d)
+	}
+
+	// One proxy and a pool of one are the same thing; collapsing them here means
+	// selection has a single code path rather than two that can disagree.
+	if len(d.cfg.ProxyPool) == 0 && d.cfg.ProxyURL != "" {
+		d.cfg.ProxyPool = []EgressProxy{{URL: d.cfg.ProxyURL}}
 	}
 
 	if d.cfg.ArtifactRoot == "" {
@@ -183,6 +221,13 @@ func (d *Driver) Capabilities() driver.Capabilities {
 func (d *Driver) Create(ctx context.Context, spec driver.EnvSpec) (driver.Env, error) {
 	if spec.Image == "" {
 		return driver.Env{}, errors.New("docker driver: spec has no image")
+	}
+
+	// Chosen before anything is created: a spec asking for a region we cannot
+	// serve should cost nothing, not leave a container behind.
+	proxy, err := d.selectProxy(spec.Network)
+	if err != nil {
+		return driver.Env{}, err
 	}
 
 	if err := d.ensureNetwork(ctx); err != nil {
@@ -236,7 +281,7 @@ func (d *Driver) Create(ctx context.Context, spec driver.EnvSpec) (driver.Env, e
 	cfg := ContainerConfig{
 		Image:        spec.Image,
 		Cmd:          spec.Command,
-		Env:          d.buildEnv(spec),
+		Env:          d.buildEnv(spec, proxy),
 		Labels:       labels,
 		User:         d.cfg.User,
 		WorkingDir:   artifactMount,
@@ -279,6 +324,60 @@ func (d *Driver) Create(ctx context.Context, spec driver.EnvSpec) (driver.Env, e
 		CreatedAt: now,
 		ExpiresAt: expires,
 	}, nil
+}
+
+// selectProxy chooses the egress point for one job.
+//
+// Round-robin rather than random: with a small pool, random selection visibly
+// clusters, and "why did nine of my ten jobs come from the same address" is a
+// question nobody should have to ask about a rotation feature.
+//
+// A request for a region the pool cannot serve is refused. That refusal is the
+// whole value of the feature being honest: a caller asking to appear in
+// Frankfurt and silently appearing in Virginia has been handed a result they
+// will trust and should not.
+func (d *Driver) selectProxy(policy driver.NetworkPolicy) (EgressProxy, error) {
+	if len(d.cfg.ProxyPool) == 0 {
+		return EgressProxy{}, nil // No pool configured; caller injects nothing.
+	}
+
+	candidates := d.cfg.ProxyPool
+	if policy.EgressRegion != "" {
+		candidates = nil
+		for _, p := range d.cfg.ProxyPool {
+			if p.Region == policy.EgressRegion {
+				candidates = append(candidates, p)
+			}
+		}
+		if len(candidates) == 0 {
+			return EgressProxy{}, &driver.UnsupportedError{
+				Driver:  d.Name(),
+				Feature: fmt.Sprintf("egress from region %q (configured regions: %s)", policy.EgressRegion, d.regions()),
+			}
+		}
+	}
+
+	// Add returns the new value, so the first job takes index 0.
+	n := d.proxyCursor.Add(1) - 1
+	return candidates[n%uint64(len(candidates))], nil
+}
+
+// regions lists what the pool can actually serve, so a refusal names the
+// alternatives instead of only the problem.
+func (d *Driver) regions() string {
+	seen := map[string]bool{}
+	var out []string
+	for _, p := range d.cfg.ProxyPool {
+		if p.Region != "" && !seen[p.Region] {
+			seen[p.Region] = true
+			out = append(out, p.Region)
+		}
+	}
+	if len(out) == 0 {
+		return "none - the pool is unlabelled"
+	}
+	sort.Strings(out)
+	return strings.Join(out, ", ")
 }
 
 // networkModeFor maps a policy to a Docker network, refusing what it cannot
@@ -407,7 +506,7 @@ func (d *Driver) ensureImage(ctx context.Context, image string) error {
 // buildEnv assembles the container environment. Secrets are merged here and
 // nowhere else, so this is the whole surface on which a credential can reach
 // the agent — and none of it is written to a label, a name, or a log.
-func (d *Driver) buildEnv(spec driver.EnvSpec) []string {
+func (d *Driver) buildEnv(spec driver.EnvSpec, proxy EgressProxy) []string {
 	env := make([]string, 0, len(spec.Env)+len(spec.Secrets)+6)
 
 	env = append(env,
@@ -416,14 +515,20 @@ func (d *Driver) buildEnv(spec driver.EnvSpec) []string {
 		"EPHEMERA_ARTIFACT_DIR="+artifactMount,
 	)
 
-	if spec.Network.Mode == driver.NetworkProxied && d.cfg.ProxyURL != "" {
+	if spec.Network.Mode == driver.NetworkProxied && proxy.URL != "" {
 		// Both cases, because different tools read different spellings.
 		env = append(env,
-			"HTTP_PROXY="+d.cfg.ProxyURL,
-			"HTTPS_PROXY="+d.cfg.ProxyURL,
-			"http_proxy="+d.cfg.ProxyURL,
-			"https_proxy="+d.cfg.ProxyURL,
+			"HTTP_PROXY="+proxy.URL,
+			"HTTPS_PROXY="+proxy.URL,
+			"http_proxy="+proxy.URL,
+			"https_proxy="+proxy.URL,
 		)
+		if proxy.Region != "" {
+			// Told to the agent as well as used, so a run's own logs record
+			// where it egressed from. Debugging "this looked different today"
+			// without that is guesswork.
+			env = append(env, "EPHEMERA_EGRESS_REGION="+proxy.Region)
+		}
 		if d.cfg.NoProxyHosts != "" {
 			env = append(env, "NO_PROXY="+d.cfg.NoProxyHosts, "no_proxy="+d.cfg.NoProxyHosts)
 		}

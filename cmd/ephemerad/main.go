@@ -25,6 +25,7 @@ import (
 	"ephemera/internal/api"
 	"ephemera/internal/artifact"
 	"ephemera/internal/driver"
+	"ephemera/internal/driver/docker"
 	"ephemera/internal/driver/process"
 	"ephemera/internal/logstream"
 	"ephemera/internal/queue/embedded"
@@ -37,22 +38,26 @@ import (
 var version = "dev"
 
 type options struct {
-	addr        string
-	dataDir     string
-	driverName  string
-	workers     int
-	queueDepth  int
-	logFormat   string
-	logLevel    string
-	baseURL     string
-	signingKey  string
-	tokens      string
-	secretsDir  string
-	envPrefix   string
-	maxLifetime time.Duration
-	deadline    time.Duration
-	maxDeadline time.Duration
-	showVersion bool
+	addr          string
+	dataDir       string
+	driverName    string
+	workers       int
+	queueDepth    int
+	logFormat     string
+	logLevel      string
+	baseURL       string
+	signingKey    string
+	tokens        string
+	secretsDir    string
+	envPrefix     string
+	dockerHost    string
+	dockerNetwork string
+	egressProxy   string
+	pullPolicy    string
+	maxLifetime   time.Duration
+	deadline      time.Duration
+	maxDeadline   time.Duration
+	showVersion   bool
 }
 
 func main() {
@@ -76,7 +81,7 @@ func parseFlags() options {
 
 	flag.StringVar(&o.addr, "addr", envOr("EPHEMERA_ADDR", ":8080"), "address for the HTTP API")
 	flag.StringVar(&o.dataDir, "data-dir", envOr("EPHEMERA_DATA_DIR", "./data"), "directory for the queue, environments and artifacts")
-	flag.StringVar(&o.driverName, "driver", envOr("EPHEMERA_DRIVER", "process"), "compute driver: process")
+	flag.StringVar(&o.driverName, "driver", envOr("EPHEMERA_DRIVER", "process"), "compute driver: process or docker")
 	flag.IntVar(&o.workers, "workers", envIntOr("EPHEMERA_WORKERS", 8), "jobs that may run simultaneously")
 	flag.IntVar(&o.queueDepth, "queue-depth", envIntOr("EPHEMERA_QUEUE_DEPTH", 1000), "maximum queued jobs before submissions are refused")
 	flag.StringVar(&o.logFormat, "log-format", envOr("EPHEMERA_LOG_FORMAT", "text"), "log format: text or json")
@@ -89,6 +94,10 @@ func parseFlags() options {
 	flag.DurationVar(&o.maxLifetime, "max-env-lifetime", envDurationOr("EPHEMERA_MAX_ENV_LIFETIME", time.Hour), "absolute cap on how long any environment may exist")
 	flag.DurationVar(&o.deadline, "default-deadline", envDurationOr("EPHEMERA_DEFAULT_DEADLINE", 5*time.Minute), "deadline for jobs that request none")
 	flag.DurationVar(&o.maxDeadline, "max-deadline", envDurationOr("EPHEMERA_MAX_DEADLINE", 30*time.Minute), "largest deadline a caller may request")
+	flag.StringVar(&o.dockerHost, "docker-host", os.Getenv("DOCKER_HOST"), "docker daemon address (default: DOCKER_HOST or the platform socket)")
+	flag.StringVar(&o.dockerNetwork, "docker-network", envOr("EPHEMERA_DOCKER_NETWORK", ""), "internal docker network for job containers; required for proxied egress")
+	flag.StringVar(&o.egressProxy, "egress-proxy", envOr("EPHEMERA_EGRESS_PROXY", ""), "proxy URL injected into job containers on an internal network")
+	flag.StringVar(&o.pullPolicy, "pull-policy", envOr("EPHEMERA_PULL_POLICY", "if-missing"), "image pull policy: always, if-missing or never")
 	flag.BoolVar(&o.showVersion, "version", false, "print the version and exit")
 
 	flag.Usage = func() {
@@ -179,9 +188,16 @@ func run(opts options, log *slog.Logger) error {
 	schedCfg.MaxDeadline = opts.maxDeadline
 	schedCfg.ArtifactDir = artifactDirFor(drv)
 
-	// Downgrade deliberately and say so. Silently dropping a security control
-	// is the one behaviour this system refuses; announcing it is the price of
-	// letting the process driver run at all.
+	// Choose the egress posture the driver can actually deliver.
+	//
+	// This is a composition-root decision on purpose. Each driver enforces a
+	// different subset, and the alternative — a scheduler that guesses, or a
+	// driver that silently accepts what it cannot honour — is exactly the
+	// dishonesty the Capabilities design exists to prevent. So the mapping is
+	// written out here, in one place, where it can be read and argued with.
+	schedCfg.NetworkMode, schedCfg.DenyCIDRs = egressPostureFor(drv, opts, log)
+
+	// Anything still unenforceable is dropped loudly rather than quietly.
 	schedCfg, dropped := schedCfg.RelaxedFor(drv)
 	for _, control := range dropped {
 		log.Warn("control not enforced by this driver",
@@ -300,8 +316,17 @@ func buildDriver(opts options, dataDir string) (driver.Driver, error) {
 	switch strings.ToLower(opts.driverName) {
 	case "process":
 		return process.New(filepath.Join(dataDir, "environments"))
+
+	case "docker":
+		cfg := docker.DefaultConfig()
+		cfg.Host = opts.dockerHost
+		cfg.Network = opts.dockerNetwork
+		cfg.ProxyURL = opts.egressProxy
+		cfg.PullPolicy = opts.pullPolicy
+		return docker.New(cfg)
+
 	default:
-		return nil, fmt.Errorf("unknown driver %q (available: process)", opts.driverName)
+		return nil, fmt.Errorf("unknown driver %q (available: process, docker)", opts.driverName)
 	}
 }
 
@@ -410,4 +435,55 @@ func deriveBaseURL(addr string) string {
 		host = "localhost"
 	}
 	return "http://" + net.JoinHostPort(host, port)
+}
+
+// egressPostureFor picks the network policy this driver can genuinely enforce,
+// and says plainly what the operator is getting.
+//
+// The three outcomes, worst to best:
+//
+//   - process driver: no network control at all. The agent shares the host's
+//     network, so it can reach cloud metadata and anything else the host can.
+//     Acceptable for local development with code you wrote; not for untrusted
+//     payloads, and the log says so.
+//
+//   - docker driver with no internal network: a bridge network with internet
+//     access. Docker cannot apply a CIDR deny list without host firewall rules
+//     it does not own, so no deny list is claimed.
+//
+//   - docker driver with an internal network: proxied. The container has no
+//     route off the network, so instance metadata is unreachable by
+//     construction rather than by a rule that could be mis-specified, and the
+//     proxy is the only way out.
+func egressPostureFor(d driver.Driver, opts options, log *slog.Logger) (driver.NetworkMode, []string) {
+	if !d.Capabilities().EnforcesNetworkPolicy {
+		log.Warn("this driver enforces no network isolation",
+			"driver", d.Name(),
+			"consequence", "agents can reach cloud metadata and host services",
+			"remedy", "use --driver docker with --docker-network for isolation")
+		return driver.NetworkEgress, nil
+	}
+
+	if opts.dockerNetwork == "" {
+		log.Warn("no internal network configured; containers get ordinary bridge networking",
+			"consequence", "egress is unrestricted, including to instance metadata",
+			"remedy", "set --docker-network (and --egress-proxy) to isolate egress")
+		return driver.NetworkEgress, nil
+	}
+
+	if opts.egressProxy == "" {
+		// The internal network still blocks egress structurally, but without a
+		// proxy the agent has no way out at all. That is a legitimate choice
+		// for offline work, and a surprise for anything that needs the web.
+		log.Warn("internal network configured without an egress proxy",
+			"network", opts.dockerNetwork,
+			"consequence", "agents have no internet access at all",
+			"remedy", "set --egress-proxy to allow controlled outbound traffic")
+	} else {
+		log.Info("egress isolated by internal network with a proxy",
+			"network", opts.dockerNetwork,
+			"proxy", opts.egressProxy,
+			"metadata_reachable", false)
+	}
+	return driver.NetworkProxied, nil
 }

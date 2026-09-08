@@ -688,10 +688,35 @@ func (d *Driver) Destroy(ctx context.Context, env driver.Env) error {
 		killPID(st.PID)
 	}
 
-	if err := os.RemoveAll(d.envDir(env.ID)); err != nil {
+	if err := removeWithRetry(d.envDir(env.ID)); err != nil {
 		return fmt.Errorf("process driver: remove env dir: %w", err)
 	}
 	return nil
+}
+
+// removeWithRetry deletes a directory, tolerating a briefly-held file handle.
+//
+// Unix lets you unlink a file that is still open; Windows does not. A process
+// we just killed may hold its log file open for a few milliseconds after the
+// kill call returns, and on Windows that turns into "The directory is not
+// empty" — an environment we believe we destroyed but did not, which is the
+// exact failure the reaper then has to clean up.
+//
+// Retrying briefly is the standard remedy. It is bounded, so a genuinely stuck
+// handle still surfaces as an error rather than hanging teardown.
+func removeWithRetry(dir string) error {
+	const attempts = 10
+	var err error
+	for i := 0; i < attempts; i++ {
+		if err = os.RemoveAll(dir); err == nil {
+			return nil
+		}
+		if _, statErr := os.Stat(dir); os.IsNotExist(statErr) {
+			return nil // Gone despite the error; that is the outcome we wanted.
+		}
+		time.Sleep(time.Duration(i+1) * 20 * time.Millisecond)
+	}
+	return err
 }
 
 func (d *Driver) writeState(envID string, st stateFile) error {

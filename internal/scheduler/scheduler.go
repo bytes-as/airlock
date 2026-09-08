@@ -56,6 +56,22 @@ type Config struct {
 	// note on claimOne.
 	TenantBackoff time.Duration
 
+	// ProvisionTimeout bounds Create and Start - everything before the agent is
+	// running.
+	//
+	// This is the "is it wedged before it even started?" check, and it exists
+	// because nothing else can make it. A job's deadline is enforced inside the
+	// environment and by the reaper, and both need an environment to act on: if
+	// Create never returns, there is nothing to reap, the lease keeps being
+	// renewed by a worker that is blocked in a driver call, and that worker is
+	// gone for good. Enough of those and the pool is deadlocked with an empty
+	// queue and no error anywhere.
+	//
+	// A daemon that has stopped answering, an image pull that stalls, an ECS
+	// API call that hangs - all produce exactly that. Bounded here so they
+	// produce a retryable provisioning failure instead.
+	ProvisionTimeout time.Duration
+
 	// DefaultDeadline applies to jobs that specify none.
 	DefaultDeadline time.Duration
 
@@ -86,6 +102,7 @@ func DefaultConfig() Config {
 		RecoveryInterval:   30 * time.Second,
 		IdlePoll:           200 * time.Millisecond,
 		TenantBackoff:      500 * time.Millisecond,
+		ProvisionTimeout:   2 * time.Minute,
 		DefaultDeadline:    5 * time.Minute,
 		MaxDeadline:        30 * time.Minute,
 		DefaultMaxAttempts: 3,
@@ -108,6 +125,9 @@ func (c Config) Validate() error {
 		// get taken away from workers that are doing nothing wrong.
 		return fmt.Errorf("scheduler: HeartbeatInterval (%s) must be shorter than LeaseTTL (%s)",
 			c.HeartbeatInterval, c.LeaseTTL)
+	}
+	if c.ProvisionTimeout <= 0 {
+		return errors.New("scheduler: ProvisionTimeout must be positive, or a wedged driver strands a worker forever")
 	}
 	if c.MaxDeadline > 0 && c.DefaultDeadline > c.MaxDeadline {
 		return fmt.Errorf("scheduler: DefaultDeadline (%s) exceeds MaxDeadline (%s)",
@@ -305,8 +325,21 @@ func (s *Scheduler) runJob(ctx context.Context, workerID string, j *job.Job) {
 
 	s.logs.Note(j.ID, "provisioning %s environment", s.driver.Name())
 
-	env, err := s.driver.Create(runCtx, spec)
+	// Bounded: see Config.ProvisionTimeout. A hang here is invisible to every
+	// other safety net, because none of them have an environment to act on yet.
+	createCtx, cancelCreate := context.WithTimeout(runCtx, s.cfg.ProvisionTimeout)
+	env, err := s.driver.Create(createCtx, spec)
+	cancelCreate()
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) && runCtx.Err() == nil {
+			// Distinguished from an ordinary provisioning error because the
+			// remedy is different: this one means the driver or the thing
+			// behind it stopped answering, not that the spec was wrong.
+			s.finish(persistCtx, workerID, log, j,
+				job.FailureProvision.Newf("environment did not provision within %s; the driver stopped responding", s.cfg.ProvisionTimeout),
+				started)
+			return
+		}
 		var unsupported *driver.UnsupportedError
 		if errors.As(err, &unsupported) {
 			// The driver cannot honour the spec. Retrying will not change that,
@@ -374,8 +407,17 @@ func (s *Scheduler) runJob(ctx context.Context, workerID string, j *job.Job) {
 	// including a panic. Idempotent, so calling it twice costs nothing.
 	defer teardown()
 
-	if err := s.driver.Start(runCtx, env, spec); err != nil {
+	startCtx, cancelStart := context.WithTimeout(runCtx, s.cfg.ProvisionTimeout)
+	err = s.driver.Start(startCtx, env, spec)
+	cancelStart()
+	if err != nil {
 		teardown()
+		if errors.Is(err, context.DeadlineExceeded) && runCtx.Err() == nil {
+			s.finish(persistCtx, workerID, log, j,
+				job.FailureStart.Newf("agent did not start within %s; the environment came up but never became ready", s.cfg.ProvisionTimeout),
+				started)
+			return
+		}
 		s.finish(persistCtx, workerID, log, j, job.FailureStart.Wrap(err, "could not start agent"), started)
 		return
 	}

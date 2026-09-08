@@ -242,6 +242,18 @@ this viewer could not keep up]`. The durable record is separate: drivers write
 every line to disk, so the complete log is always recoverable, and logs replay
 in full after the job ends, which is when an investigator actually arrives.
 
+**Detecting an environment that hangs before the agent starts.** `Create` and
+`Start` are bounded by `--provision-timeout` (2m default), and this is the one
+watchdog nothing else can substitute for. A job's deadline is enforced *inside*
+the environment, and the reaper works by destroying environments — both need an
+environment to exist. If provisioning itself wedges, there is nothing to reap,
+the worker sits in a driver call while its lease is faithfully renewed, and that
+slot is gone permanently. Enough of them and the pool deadlocks with an empty
+queue and no error anywhere. A stalled pull, a daemon that stopped answering, an
+API call that never returns: all produce a retryable `provision_failed` instead,
+naming the timeout. Two tests hold it, including one asserting the worker is
+free again afterwards.
+
 ### 4. Cost control — the reaper
 
 Three layers, each covering the previous one's failure mode:

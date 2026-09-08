@@ -72,6 +72,7 @@ type options struct {
 	submitBurst            float64
 	maxConcurrentPerTenant int
 	maxLifetime            time.Duration
+	provisionTimeout       time.Duration
 	deadline               time.Duration
 	maxDeadline            time.Duration
 	showVersion            bool
@@ -108,6 +109,7 @@ func parseFlags() options {
 	flag.StringVar(&o.tokens, "tokens", os.Getenv("EPHEMERA_TOKENS"), "comma-separated token=tenant pairs; empty means no authentication")
 	flag.StringVar(&o.secretsDir, "secrets-dir", envOr("EPHEMERA_SECRETS_DIR", ""), "directory of secret files for the 'file' source")
 	flag.StringVar(&o.envPrefix, "secret-env-prefix", envOr("EPHEMERA_SECRET_ENV_PREFIX", "EPHEMERA_SECRET_"), "prefix for the 'env' secret source")
+	flag.DurationVar(&o.provisionTimeout, "provision-timeout", envDurationOr("EPHEMERA_PROVISION_TIMEOUT", 2*time.Minute), "how long an environment may take to provision and start before the job is failed")
 	flag.DurationVar(&o.maxLifetime, "max-env-lifetime", envDurationOr("EPHEMERA_MAX_ENV_LIFETIME", time.Hour), "absolute cap on how long any environment may exist")
 	flag.DurationVar(&o.deadline, "default-deadline", envDurationOr("EPHEMERA_DEFAULT_DEADLINE", 5*time.Minute), "deadline for jobs that request none")
 	flag.DurationVar(&o.maxDeadline, "max-deadline", envDurationOr("EPHEMERA_MAX_DEADLINE", 30*time.Minute), "largest deadline a caller may request")
@@ -217,6 +219,7 @@ func run(opts options, log *slog.Logger) error {
 	schedCfg := scheduler.DefaultConfig()
 	schedCfg.Workers = opts.workers
 	schedCfg.DefaultDeadline = opts.deadline
+	schedCfg.ProvisionTimeout = opts.provisionTimeout
 	schedCfg.MaxDeadline = opts.maxDeadline
 	schedCfg.ArtifactDir = artifactDirFor(drv)
 

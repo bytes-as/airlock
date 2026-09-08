@@ -786,3 +786,100 @@ func exitAgent(code int) {
 	}
 	os.Exit(code)
 }
+
+// --- provisioning watchdog -------------------------------------------------
+//
+// These two are the exception to "nothing is mocked" at the top of this file.
+// A real driver cannot be made to hang on demand, and the behaviour under test
+// is precisely what happens when one does: the environment never appears, so
+// there is nothing for the reaper to destroy and nothing for the job's own
+// deadline to stop. Without a bound, the worker blocks in the driver call
+// forever while its lease is faithfully renewed, and the pool loses a slot
+// permanently with no error anywhere.
+
+// stallingDriver blocks in Create or Start until its context is cancelled.
+type stallingDriver struct {
+	driver.Driver
+	stallCreate bool
+	stallStart  bool
+}
+
+func (d *stallingDriver) Name() string { return "stalling" }
+
+func (d *stallingDriver) Capabilities() driver.Capabilities {
+	return driver.Capabilities{Isolation: driver.IsolationProcess}
+}
+
+func (d *stallingDriver) Create(ctx context.Context, spec driver.EnvSpec) (driver.Env, error) {
+	if d.stallCreate {
+		<-ctx.Done()
+		return driver.Env{}, ctx.Err()
+	}
+	return driver.Env{ID: "env-stub", Driver: d.Name(), JobID: spec.JobID, TenantID: spec.TenantID}, nil
+}
+
+func (d *stallingDriver) Start(ctx context.Context, _ driver.Env, _ driver.EnvSpec) error {
+	if d.stallStart {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	return nil
+}
+
+func (d *stallingDriver) Destroy(context.Context, driver.Env) error { return nil }
+func (d *stallingDriver) List(context.Context) ([]driver.Env, error) {
+	return nil, nil
+}
+
+func TestProvisioningHangIsBoundedAndDoesNotStrandTheWorker(t *testing.T) {
+	cfg := testConfig()
+	cfg.Workers = 1 // the only worker, so a strand is unmissable
+	cfg.ProvisionTimeout = 300 * time.Millisecond
+	cfg.DefaultMaxAttempts = 1
+
+	h := newHarness(t, cfg, func(d *Deps) {
+		d.Driver = &stallingDriver{stallCreate: true}
+	})
+	h.start()
+	defer h.stop()
+
+	j := h.submit("tenant-a", job.PriorityNormal, h.spec("hang"))
+	done := h.awaitTerminal(j.ID, 20*time.Second)
+
+	if done.State != job.StateFailed {
+		t.Fatalf("state = %s, want failed; a hung provision must not run forever", done.State)
+	}
+	if done.Failure == nil || done.Failure.Kind != job.FailureProvision {
+		t.Fatalf("failure = %+v, want %s", done.Failure, job.FailureProvision)
+	}
+
+	// The point of the test: the worker is free again. A second job proves the
+	// pool was not permanently consumed by the first.
+	second := h.submit("tenant-a", job.PriorityNormal, h.spec("hang"))
+	if got := h.awaitTerminal(second.ID, 20*time.Second); got.State != job.StateFailed {
+		t.Fatalf("second job state = %s; the worker never came back", got.State)
+	}
+}
+
+func TestStartHangIsBoundedAndTearsTheEnvironmentDown(t *testing.T) {
+	cfg := testConfig()
+	cfg.Workers = 1
+	cfg.ProvisionTimeout = 300 * time.Millisecond
+	cfg.DefaultMaxAttempts = 1
+
+	h := newHarness(t, cfg, func(d *Deps) {
+		d.Driver = &stallingDriver{stallStart: true}
+	})
+	h.start()
+	defer h.stop()
+
+	j := h.submit("tenant-a", job.PriorityNormal, h.spec("hang"))
+	done := h.awaitTerminal(j.ID, 20*time.Second)
+
+	if done.State != job.StateFailed {
+		t.Fatalf("state = %s, want failed", done.State)
+	}
+	if done.Failure == nil || done.Failure.Kind != job.FailureStart {
+		t.Fatalf("failure = %+v, want %s - an environment that came up but never became ready is a start failure, not a provisioning one", done.Failure, job.FailureStart)
+	}
+}

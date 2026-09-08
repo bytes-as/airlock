@@ -250,6 +250,7 @@ Run `make help` to list these at any time.
 | `--driver` | `EPHEMERA_DRIVER` | `process` | `process`, `docker` or `fargate`. |
 | `--workers` | `EPHEMERA_WORKERS` | `8` | Jobs that may run simultaneously. |
 | `--queue-depth` | `EPHEMERA_QUEUE_DEPTH` | `1000` | Queued jobs before submissions are refused with 503. |
+| `--provision-timeout` | `EPHEMERA_PROVISION_TIMEOUT` | `2m` | How long an environment may take to provision and start before the job fails. Stops a wedged driver from stranding a worker permanently. |
 | `--max-env-lifetime` | `EPHEMERA_MAX_ENV_LIFETIME` | `1h` | Hard cap. No environment outlives this, whatever else breaks. |
 | `--default-deadline` | `EPHEMERA_DEFAULT_DEADLINE` | `5m` | Deadline for jobs that request none. |
 | `--tokens` | `EPHEMERA_TOKENS` | *(empty)* | `token=tenant` pairs. **Empty means no authentication.** |

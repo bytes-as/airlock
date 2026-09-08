@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"ephemera/internal/job"
+	"github.com/bytes-as/ephemera/internal/job"
 )
 
 func TestChainRoutesBySourceName(t *testing.T) {

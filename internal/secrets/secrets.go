@@ -19,7 +19,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"ephemera/internal/job"
+	"github.com/bytes-as/ephemera/internal/job"
 )
 
 // Resolver turns secret references into values.

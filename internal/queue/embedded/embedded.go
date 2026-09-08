@@ -25,8 +25,8 @@ import (
 
 	bolt "go.etcd.io/bbolt"
 
-	"ephemera/internal/job"
-	"ephemera/internal/queue"
+	"github.com/bytes-as/ephemera/internal/job"
+	"github.com/bytes-as/ephemera/internal/queue"
 )
 
 var (

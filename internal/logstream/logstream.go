@@ -23,7 +23,7 @@ import (
 	"sync"
 	"time"
 
-	"ephemera/internal/driver"
+	"github.com/bytes-as/ephemera/internal/driver"
 )
 
 // DefaultHistorySize is how many recent lines a new subscriber receives.

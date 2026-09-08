@@ -18,13 +18,13 @@ import (
 	"testing"
 	"time"
 
-	"ephemera/internal/admission"
-	"ephemera/internal/artifact"
-	"ephemera/internal/driver"
-	"ephemera/internal/job"
-	"ephemera/internal/logstream"
-	"ephemera/internal/queue"
-	"ephemera/internal/queue/embedded"
+	"github.com/bytes-as/ephemera/internal/admission"
+	"github.com/bytes-as/ephemera/internal/artifact"
+	"github.com/bytes-as/ephemera/internal/driver"
+	"github.com/bytes-as/ephemera/internal/job"
+	"github.com/bytes-as/ephemera/internal/logstream"
+	"github.com/bytes-as/ephemera/internal/queue"
+	"github.com/bytes-as/ephemera/internal/queue/embedded"
 )
 
 // A real HTTP server over a real bbolt queue and a real artifact store on disk.

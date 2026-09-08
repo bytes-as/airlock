@@ -16,7 +16,7 @@ import (
 	"errors"
 	"time"
 
-	"ephemera/internal/job"
+	"github.com/bytes-as/ephemera/internal/job"
 )
 
 // Queue stores jobs durably and hands them out in dispatch order.

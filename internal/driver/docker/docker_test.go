@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"ephemera/internal/driver"
-	"ephemera/internal/job"
+	"github.com/bytes-as/ephemera/internal/driver"
+	"github.com/bytes-as/ephemera/internal/job"
 )
 
 // These tests cover the parts of the Docker driver that do not need a daemon:

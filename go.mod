@@ -1,4 +1,4 @@
-module ephemera
+module github.com/bytes-as/ephemera
 
 go 1.27.0
 

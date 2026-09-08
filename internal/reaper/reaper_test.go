@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"ephemera/internal/driver"
-	"ephemera/internal/driver/process"
-	"ephemera/internal/job"
-	"ephemera/internal/queue/embedded"
+	"github.com/bytes-as/ephemera/internal/driver"
+	"github.com/bytes-as/ephemera/internal/driver/process"
+	"github.com/bytes-as/ephemera/internal/job"
+	"github.com/bytes-as/ephemera/internal/queue/embedded"
 )
 
 // Like the driver and scheduler tests, these run real environments: a real

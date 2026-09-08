@@ -13,15 +13,15 @@ import (
 	"testing"
 	"time"
 
-	"ephemera/internal/admission"
-	"ephemera/internal/artifact"
-	"ephemera/internal/driver"
-	"ephemera/internal/driver/process"
-	"ephemera/internal/job"
-	"ephemera/internal/logstream"
-	"ephemera/internal/queue"
-	"ephemera/internal/queue/embedded"
-	"ephemera/internal/secrets"
+	"github.com/bytes-as/ephemera/internal/admission"
+	"github.com/bytes-as/ephemera/internal/artifact"
+	"github.com/bytes-as/ephemera/internal/driver"
+	"github.com/bytes-as/ephemera/internal/driver/process"
+	"github.com/bytes-as/ephemera/internal/job"
+	"github.com/bytes-as/ephemera/internal/logstream"
+	"github.com/bytes-as/ephemera/internal/queue"
+	"github.com/bytes-as/ephemera/internal/queue/embedded"
+	"github.com/bytes-as/ephemera/internal/secrets"
 )
 
 // These are integration tests. Nothing is mocked: a real bbolt queue, the real

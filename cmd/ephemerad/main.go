@@ -21,17 +21,17 @@ import (
 	"syscall"
 	"time"
 
-	"ephemera/internal/admission"
-	"ephemera/internal/api"
-	"ephemera/internal/artifact"
-	"ephemera/internal/driver"
-	"ephemera/internal/driver/docker"
-	"ephemera/internal/driver/process"
-	"ephemera/internal/logstream"
-	"ephemera/internal/queue/embedded"
-	"ephemera/internal/reaper"
-	"ephemera/internal/scheduler"
-	"ephemera/internal/secrets"
+	"github.com/bytes-as/ephemera/internal/admission"
+	"github.com/bytes-as/ephemera/internal/api"
+	"github.com/bytes-as/ephemera/internal/artifact"
+	"github.com/bytes-as/ephemera/internal/driver"
+	"github.com/bytes-as/ephemera/internal/driver/docker"
+	"github.com/bytes-as/ephemera/internal/driver/process"
+	"github.com/bytes-as/ephemera/internal/logstream"
+	"github.com/bytes-as/ephemera/internal/queue/embedded"
+	"github.com/bytes-as/ephemera/internal/reaper"
+	"github.com/bytes-as/ephemera/internal/scheduler"
+	"github.com/bytes-as/ephemera/internal/secrets"
 )
 
 // version is stamped at build time with -ldflags "-X main.version=...".

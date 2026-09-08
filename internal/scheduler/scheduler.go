@@ -20,13 +20,13 @@ import (
 	"sync"
 	"time"
 
-	"ephemera/internal/admission"
-	"ephemera/internal/artifact"
-	"ephemera/internal/driver"
-	"ephemera/internal/job"
-	"ephemera/internal/logstream"
-	"ephemera/internal/queue"
-	"ephemera/internal/secrets"
+	"github.com/bytes-as/ephemera/internal/admission"
+	"github.com/bytes-as/ephemera/internal/artifact"
+	"github.com/bytes-as/ephemera/internal/driver"
+	"github.com/bytes-as/ephemera/internal/job"
+	"github.com/bytes-as/ephemera/internal/logstream"
+	"github.com/bytes-as/ephemera/internal/queue"
+	"github.com/bytes-as/ephemera/internal/secrets"
 )
 
 // Config tunes the scheduler.

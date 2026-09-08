@@ -28,8 +28,8 @@ import (
 	"sync"
 	"time"
 
-	"ephemera/internal/driver"
-	"ephemera/internal/job"
+	"github.com/bytes-as/ephemera/internal/driver"
+	"github.com/bytes-as/ephemera/internal/job"
 )
 
 // stateFile is the per-environment record on disk. It exists so List and

@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"ephemera/internal/driver"
-	"ephemera/internal/job"
+	"github.com/bytes-as/ephemera/internal/driver"
+	"github.com/bytes-as/ephemera/internal/job"
 )
 
 // The tests below run real child processes. The child is this same test binary,

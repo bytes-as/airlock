@@ -17,7 +17,7 @@ import (
 	"fmt"
 	"time"
 
-	"ephemera/internal/job"
+	"github.com/bytes-as/ephemera/internal/job"
 )
 
 // Driver provisions and manages ephemeral execution environments.

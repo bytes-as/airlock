@@ -17,8 +17,8 @@ import (
 	"sync"
 	"time"
 
-	"ephemera/internal/driver"
-	"ephemera/internal/job"
+	"github.com/bytes-as/ephemera/internal/driver"
+	"github.com/bytes-as/ephemera/internal/job"
 )
 
 // Label keys applied to every container, so environments remain identifiable as

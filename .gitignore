@@ -1,0 +1,31 @@
+# Private working notes — never submit
+_private/
+
+# Go
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Claude Code local session state
+.claude/

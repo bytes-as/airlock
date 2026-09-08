@@ -12,6 +12,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -80,7 +81,7 @@ func parseFlags() options {
 	flag.IntVar(&o.queueDepth, "queue-depth", envIntOr("EPHEMERA_QUEUE_DEPTH", 1000), "maximum queued jobs before submissions are refused")
 	flag.StringVar(&o.logFormat, "log-format", envOr("EPHEMERA_LOG_FORMAT", "text"), "log format: text or json")
 	flag.StringVar(&o.logLevel, "log-level", envOr("EPHEMERA_LOG_LEVEL", "info"), "log level: debug, info, warn or error")
-	flag.StringVar(&o.baseURL, "base-url", envOr("EPHEMERA_BASE_URL", "http://localhost:8080"), "public origin used when signing artifact links")
+	flag.StringVar(&o.baseURL, "base-url", os.Getenv("EPHEMERA_BASE_URL"), "public origin for artifact links (derived from --addr when empty)")
 	flag.StringVar(&o.signingKey, "signing-key", os.Getenv("EPHEMERA_SIGNING_KEY"), "key for signing artifact links; generated if empty, which invalidates old links on restart")
 	flag.StringVar(&o.tokens, "tokens", os.Getenv("EPHEMERA_TOKENS"), "comma-separated token=tenant pairs; empty means no authentication")
 	flag.StringVar(&o.secretsDir, "secrets-dir", envOr("EPHEMERA_SECRETS_DIR", ""), "directory of secret files for the 'file' source")
@@ -139,10 +140,19 @@ func run(opts options, log *slog.Logger) error {
 		log.Warn("no signing key configured; artifact links will not survive a restart. " +
 			"Set EPHEMERA_SIGNING_KEY to keep them valid.")
 	}
+	baseURL := opts.baseURL
+	if baseURL == "" {
+		// Derive from the listen address rather than hardcoding a port. Getting
+		// this wrong is not cosmetic: every artifact link the API hands out
+		// would point at a server that is not there.
+		baseURL = deriveBaseURL(opts.addr)
+		log.Info("base URL derived from listen address", "base_url", baseURL)
+	}
+
 	artifacts, err := artifact.NewLocal(
 		filepath.Join(dataDir, "artifacts"),
 		signingKey,
-		artifact.WithBaseURL(opts.baseURL),
+		artifact.WithBaseURL(baseURL),
 	)
 	if err != nil {
 		return err
@@ -383,4 +393,21 @@ func envDurationOr(key string, fallback time.Duration) time.Duration {
 		}
 	}
 	return fallback
+}
+
+// deriveBaseURL turns a listen address into a URL a client can actually reach.
+//
+// A bare or wildcard host becomes localhost: "0.0.0.0" and "" are things a
+// server binds to, not things a browser can resolve, and an artifact link
+// pointing at http://0.0.0.0:8080 is a link to nowhere.
+func deriveBaseURL(addr string) string {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "http://localhost:8080"
+	}
+	switch host {
+	case "", "0.0.0.0", "::", "[::]":
+		host = "localhost"
+	}
+	return "http://" + net.JoinHostPort(host, port)
 }

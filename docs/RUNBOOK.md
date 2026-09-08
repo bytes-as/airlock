@@ -6,12 +6,38 @@ Every command needed to build, run, test, deploy and tear down this system.
 says what to run, what you should see, and what to do when you see something
 else. Commands are copy-pasteable in order.
 
-If you only have ten minutes, do [Part 1](#part-1--run-it-locally-10-minutes).
+---
+
+## In a hurry? Three commands
+
+```bash
+docker compose up --build -d                      # start everything
+make build && ./bin/ephemera run --image ephemera/agent:dev --query "hello"
+docker compose down -v                            # stop everything
+```
+
+That submits a job, runs it in its own throwaway container with a real headless
+browser, streams the logs live, and prints signed links to the screenshot it
+captured. Nothing else to install, no cloud account.
+
+### Want to check a specific claim? Here is the command for each
+
+| Claim | Command |
+|---|---|
+| Runs a job end to end | `./bin/ephemera run --image ephemera/agent:dev --query "hello"` |
+| One throwaway container per job | `docker ps --filter "label=ephemera.managed=true"` while a job runs |
+| Handles 50 at once | `AGENT_IMAGE=ephemera/agent:dev ./scripts/load-test.sh 50 http://localhost:8080` |
+| Agents cannot reach cloud metadata | [Prove the egress control](#prove-the-egress-control-the-security-claim) |
+| Tenants cannot read each other's files | `go test -tags docker ./internal/driver/docker/ -run CannotSeeEachOthers -v` |
+| Egress rotates across proxies | `go test -tags docker ./internal/driver/docker/ -run EgressRotationReaches -v` |
+| Nothing is left running or on disk | [Confirm nothing leaked](#confirm-nothing-leaked) |
+| Everything CI checks | `make ci` |
 
 ---
 
 ## Contents
 
+- [In a hurry? Three commands](#in-a-hurry-three-commands)
 - [Part 0 — Prerequisites](#part-0--prerequisites)
 - [Part 1 — Run it locally (10 minutes)](#part-1--run-it-locally-10-minutes)
 - [Part 2 — Run the full stack in Docker](#part-2--run-the-full-stack-in-docker)
@@ -187,18 +213,76 @@ docker run --rm --network ephemera_jobs alpine:3.19 \
 Both should print the `-GOOD` line. That is the egress claim, checked rather
 than asserted.
 
-### See egress rotation
+### Use your own proxy, and rotate egress IPs
 
-The compose stack runs two egress proxies so jobs rotate between them. Prove it:
+This is the part you configure with **one environment variable**. Nothing to
+recompile, no code to edit.
+
+**One proxy — everything goes through it:**
+
+```bash
+EPHEMERA_EGRESS_PROXY="http://user:pass@your-proxy.example:8080" \
+  docker compose up --build -d
+```
+
+**A pool — jobs rotate across them, round-robin:**
+
+```bash
+EPHEMERA_EGRESS_PROXY_POOL="http://p1.example:8080,http://p2.example:8080,http://p3.example:8080" \
+  docker compose up --build -d
+```
+
+**A pool with locations — so a job can ask to appear somewhere:**
+
+```bash
+EPHEMERA_EGRESS_PROXY_POOL="eu=http://eu.example:8080,us=http://us.example:8080" \
+  docker compose up --build -d
+
+# then pin one job to a location:
+./bin/ephemera run --image ephemera/agent:dev --query "hello" --egress-region eu
+```
+
+Format is `url` or `region=url`, comma-separated. Credentials go in the URL.
+
+**What you should see.** Each job's own logs name the proxy it used, so you can
+watch the rotation happen:
+
+```
+browser egressing via http://p2.example:8080
+captured screenshot.png (22008 bytes) from https://example.com/?q=hello
+```
+
+**Asking for a region that is not configured is refused**, not quietly served
+from somewhere else:
+
+```bash
+./bin/ephemera run --image ephemera/agent:dev --egress-region antarctica
+```
+
+```
+failure      rejected (user fault, retryable=false)
+             driver "docker" cannot enforce egress from region "antarctica" (configured regions: eu, us)
+```
+
+The refusal names what you asked for *and* what is available, so the fix is
+obvious without reading anything.
+
+That refusal is deliberate. A caller who asked for Frankfurt, silently got
+Virginia, and believed the result has been handed something worse than an error.
+
+**With no proxy configured at all**, the compose stack still starts two of its
+own and rotates between them, so the mechanism works out of the box — but both
+leave your laptop through the same address. Rotating the *route* is what this
+code does; genuinely different *addresses* are infrastructure you supply (a NAT
+gateway per availability zone, or a commercial proxy pool).
+
+Prove the rotation without setting anything up:
 
 ```bash
 go test -tags docker ./internal/driver/docker/ -run EgressRotationReaches -v
 ```
 
-It runs two jobs and asserts they left through different proxies. Both still
-leave your laptop through the same address — rotating the *route* is what the
-code does; genuinely different addresses are infrastructure (a NAT gateway per
-availability zone, or a commercial pool).
+It runs two jobs and asserts they left through different proxies.
 
 ### See tenant filesystem isolation
 
@@ -310,6 +394,8 @@ Docker driver only:
 | `--docker-network` | `EPHEMERA_DOCKER_NETWORK` | Network job containers join. Use an `internal` network for egress control. |
 | `--egress-proxy` | `EPHEMERA_EGRESS_PROXY` | Proxy URL injected into jobs on an internal network. |
 | `--egress-proxy-pool` | `EPHEMERA_EGRESS_PROXY_POOL` | Egress points to rotate jobs across, `url` or `region=url`, comma-separated. e.g. `eu=http://p-eu:8888,us=http://p-us:8888` |
+
+See [Use your own proxy, and rotate egress IPs](#use-your-own-proxy-and-rotate-egress-ips) for copy-paste examples.
 | `--pull-policy` | `EPHEMERA_PULL_POLICY` | `always`, `if-missing` or `never`. |
 
 Fargate driver only — all of these come from Terraform outputs (Part 5):
@@ -327,6 +413,7 @@ Fargate driver only — all of these come from Terraform outputs (Part 5):
 
 ```bash
 ./bin/ephemera run    --command <path> | --image <image> [--query <text>]  # submit and follow
+./bin/ephemera run    --image <image> --egress-region eu                   # pin egress location
 ./bin/ephemera submit --image <image>                                      # submit, do not wait
 ./bin/ephemera logs   <job-id>                                             # stream logs
 ./bin/ephemera get    <job-id>                                             # job status

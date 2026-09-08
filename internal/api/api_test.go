@@ -687,3 +687,26 @@ func writeFile(t *testing.T, path, content string) {
 }
 
 var _ = queue.ErrNotFound
+
+// TestSubmitCarriesEgressRegion: the field must reach the job spec, or the
+// driver's region support is unreachable from the API and therefore dead.
+func TestSubmitCarriesEgressRegion(t *testing.T) {
+	f := newFixture(t, DefaultConfig(), generousLimits())
+
+	req := validSubmission()
+	req.EgressRegion = "eu"
+
+	resp := f.do("POST", "/v1/jobs", req, nil)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	created := decode[JobResponse](t, resp)
+
+	stored, err := f.queue.Get(context.Background(), created.ID)
+	if err != nil {
+		t.Fatalf("get job: %v", err)
+	}
+	if stored.Spec.EgressRegion != "eu" {
+		t.Errorf("EgressRegion = %q, want %q - the request never reached the spec", stored.Spec.EgressRegion, "eu")
+	}
+}

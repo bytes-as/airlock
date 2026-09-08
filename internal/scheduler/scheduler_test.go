@@ -883,3 +883,54 @@ func TestStartHangIsBoundedAndTearsTheEnvironmentDown(t *testing.T) {
 		t.Fatalf("failure = %+v, want %s - an environment that came up but never became ready is a start failure, not a provisioning one", done.Failure, job.FailureStart)
 	}
 }
+
+// TestRejectedJobEndsItsLogStream: a job that fails before an environment
+// exists must still close its stream, or every viewer waiting on it hangs.
+//
+// This was a real bug: End lived only in teardown, which closes over the
+// environment and therefore does not exist for a job rejected at Create. The
+// job reached a terminal state on the server while `run` sat waiting for output
+// that would never come.
+func TestRejectedJobEndsItsLogStream(t *testing.T) {
+	cfg := testConfig()
+	cfg.Workers = 1
+	cfg.DefaultMaxAttempts = 1
+
+	h := newHarness(t, cfg, func(d *Deps) {
+		d.Driver = &refusingDriver{}
+	})
+	h.start()
+	defer h.stop()
+
+	j := h.submit("tenant-a", job.PriorityNormal, h.spec("rejected"))
+	done := h.awaitTerminal(j.ID, 20*time.Second)
+	if done.State != job.StateFailed {
+		t.Fatalf("state = %s, want failed", done.State)
+	}
+
+	// The stream must be closed, not merely quiet.
+	deadline := time.After(10 * time.Second)
+	for !h.logs.Ended(j.ID) {
+		select {
+		case <-deadline:
+			t.Fatal("log stream never ended for a job that failed before provisioning; a viewer would hang forever")
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+}
+
+// refusingDriver rejects every spec at Create, the way a driver does when asked
+// for something it cannot enforce.
+type refusingDriver struct {
+	driver.Driver
+}
+
+func (d *refusingDriver) Name() string { return "refusing" }
+func (d *refusingDriver) Capabilities() driver.Capabilities {
+	return driver.Capabilities{Isolation: driver.IsolationProcess}
+}
+func (d *refusingDriver) Create(context.Context, driver.EnvSpec) (driver.Env, error) {
+	return driver.Env{}, &driver.UnsupportedError{Driver: "refusing", Feature: "anything at all"}
+}
+func (d *refusingDriver) Destroy(context.Context, driver.Env) error  { return nil }
+func (d *refusingDriver) List(context.Context) ([]driver.Env, error) { return nil, nil }

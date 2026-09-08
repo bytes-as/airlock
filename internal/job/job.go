@@ -41,6 +41,11 @@ type Spec struct {
 	// MaxAttempts bounds retries of retryable failures. Zero means the platform
 	// default; one means never retry.
 	MaxAttempts int `json:"max_attempts,omitempty"`
+	// EgressRegion asks for an egress point in a particular location, for work
+	// that must appear to come from somewhere specific. Empty means any, which
+	// leaves the platform free to rotate. A driver that cannot honour the
+	// request refuses the job rather than silently egressing from elsewhere.
+	EgressRegion string `json:"egress_region,omitempty"`
 }
 
 // Resources bounds what one job may consume. Enforced by the driver, so a job

@@ -134,6 +134,9 @@ type SubmitRequest struct {
 	MaxAttempts     int   `json:"max_attempts,omitempty"`
 	CPUMillis       int64 `json:"cpu_millis,omitempty"`
 	MemoryMiB       int64 `json:"memory_mib,omitempty"`
+	// EgressRegion requests an egress point in a particular location. Refused
+	// with 400 if the platform has none, rather than run from somewhere else.
+	EgressRegion string `json:"egress_region,omitempty"`
 }
 
 // JobResponse is the API's view of a job.
@@ -652,14 +655,15 @@ func specFromRequest(req SubmitRequest) (job.Spec, error) {
 		}
 	}
 	return job.Spec{
-		Image:       req.Image,
-		Command:     req.Command,
-		Input:       req.Input,
-		Env:         req.Env,
-		Secrets:     req.Secrets,
-		Deadline:    time.Duration(req.DeadlineSeconds) * time.Second,
-		MaxAttempts: req.MaxAttempts,
-		Resources:   job.Resources{CPUMillis: req.CPUMillis, MemoryMiB: req.MemoryMiB},
+		Image:        req.Image,
+		Command:      req.Command,
+		Input:        req.Input,
+		Env:          req.Env,
+		Secrets:      req.Secrets,
+		Deadline:     time.Duration(req.DeadlineSeconds) * time.Second,
+		MaxAttempts:  req.MaxAttempts,
+		Resources:    job.Resources{CPUMillis: req.CPUMillis, MemoryMiB: req.MemoryMiB},
+		EgressRegion: strings.TrimSpace(req.EgressRegion),
 	}, nil
 }
 

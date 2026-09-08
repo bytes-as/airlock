@@ -121,6 +121,7 @@ type jobFlags struct {
 	secrets   stringList
 	memoryMiB int64
 	cpuMillis int64
+	region    string
 }
 
 func (j *jobFlags) bind(fs *flag.FlagSet) {
@@ -135,6 +136,7 @@ func (j *jobFlags) bind(fs *flag.FlagSet) {
 	fs.Var(&j.secrets, "secret", "secret as NAME=source:key (repeatable)")
 	fs.Int64Var(&j.memoryMiB, "memory-mib", 0, "memory limit in MiB")
 	fs.Int64Var(&j.cpuMillis, "cpu-millis", 0, "CPU limit in millicores")
+	fs.StringVar(&j.region, "egress-region", "", "require an egress point in this region; refused if the platform has none")
 }
 
 func (j *jobFlags) request() (map[string]any, error) {
@@ -182,6 +184,9 @@ func (j *jobFlags) request() (map[string]any, error) {
 	}
 	if j.deadline > 0 {
 		req["deadline_seconds"] = int(j.deadline.Seconds())
+	}
+	if j.region != "" {
+		req["egress_region"] = j.region
 	}
 	if j.attempts > 0 {
 		req["max_attempts"] = j.attempts

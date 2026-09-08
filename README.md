@@ -52,6 +52,11 @@ flowchart TB
 it — Terraform, ECR, ECS task definitions, IAM and a `fargate` driver — but
 never executed there, and labelled as such throughout.**
 
+> **Three things are deliberately not done** — the AWS path has never been run,
+> memory isolation on Docker is not absolute, and there are no warm pools. All
+> three come down to not having an AWS account to spend on this. Reasons and
+> upgrade paths: **[Known gaps, and why](#known-gaps-and-why)**.
+
 > **[docs/RUNBOOK.md](docs/RUNBOOK.md) is the operator's guide**: every command
 > to build, run, test, deploy and tear this down, with what you should see and
 > what to do when you see something else. Written to be followed without
@@ -498,7 +503,7 @@ README worthless. So, plainly:
 | `docker` driver | ✅ integration suite executed against a live daemon — 11/11 |
 | Race detector | ✅ clean — `-race` across every package, no data races |
 | Terraform | ⚠️ `fmt`, `validate`, `tflint`, `checkov` pass; **never applied** |
-| `fargate` driver | ⚠️ implemented and unit tested against fakes; **never executed against AWS** |
+| `fargate` driver | ⚠️ implemented and unit tested against fakes; **never executed against AWS** — [why](#known-gaps-and-why) |
 
 Verified on macOS 26.5.1 (arm64), Go 1.27.0, Docker Engine 29.1.3, Terraform 1.16.1.
 Reproduce any row with [docs/RUNBOOK.md](docs/RUNBOOK.md).
@@ -581,6 +586,77 @@ interface rather than two, and the third one found no reason to change it.
   `queue.Queue` is a job *store* — priority claim, get, list, update — and SQS
   cannot implement it. Pretending otherwise would have been a worse lie than
   leaving it. See the scale ladder.
+
+---
+
+## Known gaps, and why
+
+Three things in this repo are not done. None of them are oversights, and the
+reason for all three is the same one, so it is worth stating once, plainly.
+
+**I do not have an AWS account for this.** Not "did not get around to it" — a
+personal account would cost real money to run this in. The Terraform here
+provisions a NAT gateway (~$32/month before a byte of traffic), an ECS cluster,
+a NAT-backed private subnet and an S3 bucket. Standing that up to prove it works
+is a bill I chose not to pay for a project that runs perfectly well on a laptop.
+Every gap below follows from that decision, and I would rather say so than
+present a system whose most important claims I could not check.
+
+### 1. The AWS path has never been executed
+
+The `fargate` driver is written, wired into the daemon, and unit tested against
+a fake ECS/S3/CloudWatch layer. It has never spoken to AWS. The Terraform has
+never been applied.
+
+*Why:* no account to apply it into. See above.
+
+*What that means for you:* expect to fix things on the first `terraform apply`.
+This project's own history is the reason to take that seriously rather than as a
+formality — the `docker` driver also spent a long time "written and compiling",
+and the first contact with a real daemon found four bugs, one of which meant
+artifacts could **never** be collected, silently, on every job. The `fargate`
+driver is at exactly that maturity. My guess at what breaks first: an IAM gap, an
+architecture mismatch on the pushed image, and the CloudWatch log stream name.
+
+*What is genuinely demonstrable without an account:* that the abstraction holds.
+The scheduler, reaper, admission control, failure taxonomy, API and CLI are all
+driver-agnostic; moving from a container on a laptop to a task in a VPC touches
+one package and one `switch` statement. Three drivers now pressure-test that
+interface, and the third found no reason to change it.
+
+### 2. Memory isolation between tenants is not absolute on the Docker path
+
+Filesystem isolation is real and tested — job B cannot read job A's files
+through the filesystem or through artifact collection. Memory is bounded per job
+by cgroups, so one job cannot starve another. But these containers **share a
+kernel**, so a kernel exploit crosses between them. That is not "total memory
+isolation".
+
+*Why:* a hypervisor boundary needs Firecracker, gVisor, or Fargate — and Fargate
+brings us back to gap 1. Running gVisor locally was possible but would have made
+the one path a reader can actually run harder to set up, for a property that
+matters in production and not on a laptop.
+
+*The upgrade path, in order of effort:* `--driver fargate` (each task is already
+its own microVM), gVisor as a Docker runtime (`--runtime=runsc`, roughly a
+one-line driver change), or Firecracker for full VM isolation.
+
+### 3. Warm pools are not implemented
+
+Spot capacity is: job tasks run on `FARGATE_SPOT` at a weighting, with on-demand
+for the control plane, and the failure taxonomy already treats a reclaimed task
+as retryable infrastructure failure rather than an agent bug. Warm pools — a
+reserve of pre-provisioned environments to cut time-to-first-byte — are not.
+
+*Why:* a warm pool is only meaningful when you can measure the cold-start it is
+removing, and that measurement lives in the cloud path I could not run. Building
+it locally, where container start is already ~200ms, would have been tuning
+against a number that does not exist in production.
+
+*What it would take:* the `Driver` interface already has the shape for it —
+`Create` and `Start` are separate calls precisely so an environment can exist
+before there is work for it. A pool keeping N created-but-unstarted environments
+per spec fingerprint would slot in above the driver without changing it.
 
 ---
 

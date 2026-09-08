@@ -344,7 +344,14 @@ func (s *Scheduler) runJob(ctx context.Context, workerID string, j *job.Job) {
 		if errors.As(err, &unsupported) {
 			// The driver cannot honour the spec. Retrying will not change that,
 			// and it is the caller's spec that is wrong.
-			s.finish(persistCtx, workerID, log, j, job.FailureRejected.Wrap(err, "driver cannot honour this spec"), started)
+			//
+			// The driver's own message is used verbatim rather than replaced
+			// with a generic one: these refusals are written to name what was
+			// asked for and what is available instead ("cannot enforce egress
+			// from region \"antarctica\" (configured regions: eu, us)"), and
+			// flattening that to "cannot honour this spec" throws away the only
+			// part the caller can act on.
+			s.finish(persistCtx, workerID, log, j, job.FailureRejected.Wrap(err, "%v", err), started)
 			return
 		}
 		s.finish(persistCtx, workerID, log, j, job.FailureProvision.Wrap(err, "could not create environment"), started)
@@ -540,6 +547,11 @@ func (s *Scheduler) buildEnvSpec(ctx context.Context, j *job.Job) (driver.EnvSpe
 		Network: driver.NetworkPolicy{
 			Mode:      s.cfg.NetworkMode,
 			DenyCIDRs: s.cfg.DenyCIDRs,
+			// Per job, so one tenant can ask to appear in Frankfurt while
+			// everything else rotates freely. The driver refuses what it cannot
+			// serve, which surfaces as a rejected job rather than a silent
+			// substitution.
+			EgressRegion: j.Spec.EgressRegion,
 		},
 		Labels: map[string]string{
 			"ephemera.job":    j.ID,
@@ -625,6 +637,17 @@ func (s *Scheduler) finish(ctx context.Context, workerID string, log *slog.Logge
 		"attempts", j.Attempts,
 		"duration", s.now().Sub(started).Round(time.Millisecond))
 	s.logs.Note(j.ID, "job failed: %s", failure.Error())
+
+	// End the stream here, not only in teardown.
+	//
+	// teardown closes over the environment, so it does not exist for a job that
+	// failed before one was created - a rejected spec, a provisioning failure,
+	// an unresolvable secret. Those jobs reached a terminal state with their log
+	// stream still open, and every viewer waiting on it hung forever: `run`
+	// printed the submission line and then sat there, with the job already
+	// failed on the server. End is idempotent, so the teardown path calling it
+	// again costs nothing.
+	s.logs.End(j.ID)
 }
 
 // startHeartbeat renews the job's lease until the returned stop func is called.

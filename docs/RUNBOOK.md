@@ -8,7 +8,7 @@ else. Commands are copy-pasteable in order.
 
 ---
 
-## In a hurry? Three commands
+## In a hurry? Four commands
 
 Start everything:
 
@@ -22,15 +22,29 @@ Build the client and run one job:
 make build && ./bin/airlock run --image airlock/agent:dev --query "hello"
 ```
 
+Then answer the load question — 50 jobs submitted at once:
+
+```bash
+AGENT_IMAGE=airlock/agent:dev ./scripts/load-test.sh 50 http://localhost:8080
+```
+
 Stop everything:
 
 ```bash
 docker compose down -v
 ```
 
-That submits a job, runs it in its own throwaway container with a real headless
-browser, streams the logs live, and prints signed links to the screenshot it
-captured. Nothing else to install, no cloud account.
+The single job runs in its own throwaway container with a real headless browser,
+streams its logs live, and prints signed links to the screenshot it captured. The
+load test submits 50 at once and reports what the system did with them: all 50
+admitted, all 50 finished, nothing left running.
+
+Expect the load test to take around 20 seconds. Concurrency is bounded by the
+worker pool (8 by default), so it is 8 browsers at a time rather than 50 — which
+is the point being demonstrated. With a browser-less agent the same 50 jobs
+finish in about 6 seconds; the difference is the browser, not the scheduler.
+
+Nothing else to install, no cloud account.
 
 ### Want to check a specific claim? Here is the command for each
 
@@ -49,7 +63,7 @@ captured. Nothing else to install, no cloud account.
 
 ## Contents
 
-- [In a hurry? Three commands](#in-a-hurry-three-commands)
+- [In a hurry? Four commands](#in-a-hurry-four-commands)
 - [Part 0 — Prerequisites](#part-0--prerequisites)
 - [Part 1 — Run it locally (10 minutes)](#part-1--run-it-locally-10-minutes)
 - [Part 2 — Run the full stack in Docker](#part-2--run-the-full-stack-in-docker)

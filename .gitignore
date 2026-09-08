@@ -29,3 +29,7 @@ Thumbs.db
 
 # Claude Code local session state
 .claude/
+
+# Local Go build scratch (Windows Application Control blocks exec from system temp)
+.gotmp/
+.gobin/

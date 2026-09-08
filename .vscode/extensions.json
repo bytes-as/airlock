@@ -1,0 +1,12 @@
+{
+  // Suggested on first open. Nothing here is required to build - `make build`
+  // works with a bare Go install - but each one covers a language actually in
+  // this repo, and a Go project opened without gopls is a bad first impression.
+  "recommendations": [
+    "golang.go",
+    "hashicorp.terraform",
+    "ms-azuretools.vscode-docker",
+    "redhat.vscode-yaml",
+    "bierner.markdown-mermaid"
+  ]
+}

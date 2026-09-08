@@ -25,7 +25,12 @@ crash.log
 .DS_Store
 Thumbs.db
 .idea/
-.vscode/
+
+# VS Code: share the project-level config, keep per-user state out.
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/launch.json
 
 # Claude Code local session state
 .claude/

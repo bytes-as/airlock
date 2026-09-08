@@ -1,0 +1,34 @@
+{
+  // Go
+  "gopls": {
+    "ui.semanticTokens": true,
+    // The Docker integration tests sit behind this tag. Without it the editor
+    // reports every symbol in those files as undefined, which looks like the
+    // code is broken when it is simply not being built.
+    "build.buildFlags": ["-tags=docker"]
+  },
+  "go.testFlags": ["-timeout", "20m"],
+  "go.testTimeout": "20m",
+  "go.lintTool": "staticcheck",
+  "[go]": {
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": { "source.organizeImports": "explicit" }
+  },
+
+  // Terraform
+  "[terraform]": { "editor.formatOnSave": true },
+  "[terraform-vars]": { "editor.formatOnSave": true },
+
+  // Keep build scratch out of search and the file tree. These are gitignored
+  // and only exist on the machine that built them.
+  "files.exclude": {
+    "**/.gotmp": true,
+    "**/.gobin": true,
+    "**/bin": true,
+    "**/data": true
+  },
+  "search.exclude": {
+    "**/.terraform": true,
+    "**/go.sum": true
+  }
+}

@@ -97,7 +97,7 @@ func runToCompletion(t *testing.T, d *Driver, spec driver.EnvSpec) (driver.Env, 
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if err := d.Start(WithSpec(ctx, spec), env); err != nil {
+	if err := d.Start(ctx, env, spec); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	waitCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -136,7 +136,7 @@ func TestLogsCaptureBothStreams(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if err := d.Start(WithSpec(ctx, spec), env); err != nil {
+	if err := d.Start(ctx, env, spec); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 
@@ -309,7 +309,7 @@ func TestSecretsReachTheAgentButNotTheDisk(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if err := d.Start(WithSpec(ctx, spec), env); err != nil {
+	if err := d.Start(ctx, env, spec); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 
@@ -417,7 +417,7 @@ func TestOrphanSurvivesControlPlaneRestart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if err := first.Start(WithSpec(ctx, spec), env); err != nil {
+	if err := first.Start(ctx, env, spec); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 

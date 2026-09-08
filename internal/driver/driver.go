@@ -39,7 +39,13 @@ type Driver interface {
 	Create(ctx context.Context, spec EnvSpec) (Env, error)
 
 	// Start begins the agent inside an already-created environment.
-	Start(ctx context.Context, env Env) error
+	//
+	// The spec is passed again rather than remembered from Create because it
+	// carries resolved secret values, and those are deliberately not retained
+	// anywhere between the two calls — not in the driver, not on disk, not in
+	// the environment record. The caller holds them for the length of this
+	// call and then drops them.
+	Start(ctx context.Context, env Env, spec EnvSpec) error
 
 	// Logs streams output until the environment exits or ctx is cancelled. The
 	// channel is closed when the stream ends. Callers must drain it, or cancel

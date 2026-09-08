@@ -48,6 +48,14 @@ type Queue interface {
 	// and will be recovered when its lease expires.
 	Release(ctx context.Context, jobID, workerID string, requeue bool) error
 
+	// Update persists changes to a job that is still in flight - most often a
+	// state transition. Without it a running job would still read as
+	// "provisioning" in the API, because the last write was its claim.
+	//
+	// Refuses terminal states: those go through Complete, which also releases
+	// the lease and clears the dispatch index.
+	Update(ctx context.Context, j *job.Job) error
+
 	// Get returns a job by ID, whatever its state.
 	Get(ctx context.Context, jobID string) (*job.Job, error)
 

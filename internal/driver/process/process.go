@@ -196,28 +196,14 @@ func (d *Driver) Create(ctx context.Context, spec driver.EnvSpec) (driver.Env, e
 	}, nil
 }
 
-// specKey is the context key carrying the resolved spec from Create to Start.
-// Secrets never touch the state file, so Start needs them handed over in memory.
-type specKey struct{}
-
-// WithSpec attaches the resolved spec — including secret values — to a context
-// for Start. Secrets travel in memory only: they are never written to the state
-// file, never logged, and never leave this process.
-func WithSpec(ctx context.Context, spec driver.EnvSpec) context.Context {
-	return context.WithValue(ctx, specKey{}, spec)
-}
-
-func specFrom(ctx context.Context) (driver.EnvSpec, bool) {
-	spec, ok := ctx.Value(specKey{}).(driver.EnvSpec)
-	return spec, ok
-}
-
-// Start launches the agent. The spec must be attached to ctx via WithSpec so
-// secret values can be injected without ever being persisted.
-func (d *Driver) Start(ctx context.Context, env driver.Env) error {
-	spec, ok := specFrom(ctx)
-	if !ok {
-		return fmt.Errorf("process driver: Start requires a spec on the context; call WithSpec")
+// Start launches the agent.
+//
+// The spec's secret values are used here and dropped when this returns: they
+// are injected into the child process environment and written to no file, no
+// log and no field of the driver.
+func (d *Driver) Start(ctx context.Context, env driver.Env, spec driver.EnvSpec) error {
+	if len(spec.Command) == 0 {
+		return fmt.Errorf("process driver: spec has no command to run")
 	}
 
 	st, err := d.readState(env.ID)

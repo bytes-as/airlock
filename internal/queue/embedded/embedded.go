@@ -461,6 +461,30 @@ func (q *Queue) RecoverExpired(ctx context.Context, now time.Time) ([]*job.Job, 
 	return recovered, nil
 }
 
+// Update persists an in-flight job record.
+func (q *Queue) Update(ctx context.Context, j *job.Job) error {
+	if j == nil || j.ID == "" {
+		return errors.New("queue: cannot update a job without an ID")
+	}
+	if j.State.Terminal() {
+		return fmt.Errorf("queue: use Complete for terminal job %s (%s)", j.ID, j.State)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return q.db.Update(func(tx *bolt.Tx) error {
+		jobs := tx.Bucket(bucketJobs)
+		if jobs.Get([]byte(j.ID)) == nil {
+			return queue.ErrNotFound
+		}
+		encoded, err := encodeJob(j)
+		if err != nil {
+			return err
+		}
+		return jobs.Put([]byte(j.ID), encoded)
+	})
+}
+
 // Get returns a job by ID.
 func (q *Queue) Get(ctx context.Context, jobID string) (*job.Job, error) {
 	if err := ctx.Err(); err != nil {

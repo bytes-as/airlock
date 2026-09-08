@@ -8,22 +8,31 @@ environment, run a "computer use" agent in it, capture the output, destroy the
 environment. The agent is a placeholder, as the brief permits. Everything
 wrapping it is the submission.
 
-```
-CLI / HTTP API  ──submit──▶  Queue (priority + per-tenant limits)
-                                  │
-                                  ▼
-                             Scheduler ── bounded worker pool
-                                  │
-                                  ▼
-                               Driver ── process │ docker │ fargate
-                                  │
-                          ┌───────┼───────────┐
-                          ▼       ▼           ▼
-                      Egress   Log stream   Artifacts
-                      policy   (SSE)        (signed URLs)
-                                  │
-                                  ▼
-                               Reaper ── three independent layers
+```mermaid
+flowchart TB
+    CLI["CLI / HTTP API"] -->|submit| ADM{"Admission<br/>rate limit + concurrency quota"}
+
+    ADM -->|"refused: 429 / 503<br/>with Retry-After"| REJ["Caller backs off"]
+    ADM -->|accepted| Q[("Queue<br/>durable, lease-based<br/>priority, FIFO within a level")]
+
+    Q -->|claim lease| SCH["Scheduler<br/>bounded worker pool"]
+    SCH --> DRV{"Driver interface"}
+
+    DRV --> PROC["process<br/>no isolation"]
+    DRV --> DOCK["docker<br/>container + egress control"]
+    DRV --> FARG["fargate<br/>not implemented"]
+
+    PROC & DOCK --> ENV["Ephemeral environment"]
+
+    ENV --> LOGS["Log stream<br/>SSE, live + replay"]
+    ENV --> ART["Artifacts<br/>HMAC-signed URLs"]
+    ENV --> REAP["Reaper<br/>3 independent layers"]
+
+    REAP -.->|"destroy before<br/>the job is reported done"| ENV
+
+    style REJ fill:#fff3cd,stroke:#856404,color:#000
+    style FARG fill:#f8d7da,stroke:#721c24,color:#000
+    style REAP fill:#d4edda,stroke:#155724,color:#000
 ```
 
 ---
@@ -125,6 +134,34 @@ internet, making it a single auditable chokepoint. Its filter denies the
 metadata and RFC1918 ranges too, so the block still holds if someone later makes
 that network routable.
 
+```mermaid
+flowchart LR
+    subgraph jobs["jobs network — internal: true, no route off itself"]
+        J1["job container"]
+        J2["job container"]
+    end
+
+    subgraph egress["egress network — has internet"]
+        PROXY["egress proxy<br/>the only bridge out"]
+    end
+
+    IMDS["169.254.169.254<br/>instance metadata"]
+    VPC["other VPC services"]
+    NET(["the internet"])
+
+    J1 & J2 -->|"HTTP_PROXY"| PROXY
+    PROXY --> NET
+
+    J1 -.->|"no route — unreachable<br/>by construction"| IMDS
+    J1 -.->|"no route"| VPC
+    PROXY -.->|"denied by filter —<br/>second layer, in case the<br/>network is made routable"| IMDS
+
+    style IMDS fill:#f8d7da,stroke:#721c24,color:#000
+    style VPC fill:#f8d7da,stroke:#721c24,color:#000
+    style PROXY fill:#d4edda,stroke:#155724,color:#000
+    style NET fill:#d1ecf1,stroke:#0c5460,color:#000
+```
+
 The driver **refuses** a CIDR deny list on an ordinary bridge network, because
 enforcing one needs rules in the host's `DOCKER-USER` chain that this driver
 does not own and could not apply portably. That refusal names the mode that does
@@ -203,6 +240,31 @@ Three layers, each covering the previous one's failure mode:
 | 2. Sweeper | control plane, via `driver.List()` | worker crash, lost bookkeeping |
 | 3. Lifetime cap | EventBridge → Lambda, **outside** the control plane | everything above being dead |
 
+```mermaid
+flowchart TB
+    ENV["Ephemeral environment<br/>costs money every second it lives"]
+
+    L1["Layer 1 — deadline<br/>inside the environment"]
+    L2["Layer 2 — sweeper<br/>inside the control plane"]
+    L3["Layer 3 — lifetime cap<br/>EventBridge → Lambda"]
+
+    L1 -->|"kills itself on time"| ENV
+    L2 -->|"enumerates via driver.List()<br/>destroys what should not exist"| ENV
+    L3 -->|"stops any task past the cap"| ENV
+
+    F1["environment supervision broken"] -.->|"layer 1 fails"| L2
+    F2["control plane crashed or wedged"] -.->|"layer 2 fails"| L3
+
+    style L3 fill:#d4edda,stroke:#155724,color:#000
+    style F1 fill:#fff3cd,stroke:#856404,color:#000
+    style F2 fill:#fff3cd,stroke:#856404,color:#000
+    style ENV fill:#f8d7da,stroke:#721c24,color:#000
+```
+
+Each layer exists to cover the previous one's failure. Layer 3 shares no code,
+no IAM role and no process with the control plane — which is the only reason it
+still works when the control plane is the thing that broke.
+
 Layer 2 enumerates what *actually exists* through the driver, never what we
 remember creating — in-memory bookkeeping cannot survive the crash it needs to
 recover from. Layer 3 shares no code, role or process with the thing it
@@ -241,6 +303,41 @@ gVisor or Firecracker would too.
 ---
 
 ## Failure modes
+
+The lifecycle has exactly one backwards edge, and it is the interesting part of
+the design:
+
+```mermaid
+stateDiagram-v2
+    [*] --> pending: submitted
+    pending --> queued: admitted
+    queued --> provisioning: claimed by a worker
+    provisioning --> running: agent started
+    running --> succeeded: exit 0
+    running --> failed: crash, deadline, OOM
+
+    provisioning --> queued: retry after a provisioning failure
+
+    pending --> failed
+    queued --> failed
+    provisioning --> failed
+    pending --> cancelled
+    queued --> cancelled
+    provisioning --> cancelled
+    running --> cancelled
+
+    succeeded --> [*]
+    failed --> [*]
+    cancelled --> [*]
+
+    note right of running
+        No edge back to queued.
+        A job that reached running may
+        have acted on the world, and we
+        cannot know whether repeating
+        that is safe.
+    end note
+```
 
 A named grading axis, so it gets a taxonomy rather than a bool. The kind decides
 **retryability** and **fault attribution**:

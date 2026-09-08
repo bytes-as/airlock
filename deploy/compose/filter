@@ -1,0 +1,38 @@
+# Destinations job containers may not reach, as fnmatch patterns matched
+# against the request host.
+#
+# Denylist, not allowlist: agents legitimately browse the open web, so an
+# allowlist would be unusable here. That is a real weakness worth stating —
+# a denylist can be evaded by anything not on it, for instance a DNS name
+# that resolves to a blocked address. The structural control (an internal
+# network with no route off it) is what actually holds; this is the second
+# layer that keeps holding if someone makes that network routable.
+
+# --- cloud instance metadata ---
+# The one that matters. Reaching this from untrusted code is how a sandbox
+# becomes stolen IAM credentials.
+169.254.169.254
+169.254.170.2
+metadata.google.internal
+metadata.goog*
+
+# --- link-local, the whole range ---
+169.254.*
+
+# --- RFC1918 private ranges: other services in the VPC ---
+10.*
+172.16.*
+172.17.*
+172.18.*
+172.19.*
+172.2*.*
+172.30.*
+172.31.*
+192.168.*
+
+# --- carrier-grade NAT, used by some cloud internals ---
+100.64.*
+
+# --- loopback: the proxy's own host ---
+127.*
+localhost

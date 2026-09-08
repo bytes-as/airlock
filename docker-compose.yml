@@ -1,0 +1,119 @@
+# Local deployment: the whole system, one command.
+#
+#   docker compose up --build
+#   ephemera run --image ephemera/agent:dev --query "ephemeral environments"
+#
+# This is developer orchestration, NOT infrastructure as code. It consumes a
+# Docker daemon that already exists; it does not provision anything, has no
+# state or drift detection, and models no IAM. Terraform under deploy/terraform
+# is the IaC deliverable. See docs/ARCHITECTURE.md for why the distinction
+# matters here.
+#
+# The three networks are the point of this file. `jobs` is internal, so
+# containers on it have no route off the network at all — instance metadata at
+# 169.254.169.254 is unreachable by construction rather than by a firewall rule
+# that could be mis-specified. The egress proxy is the only container bridging
+# `jobs` and `egress`, so it is the single, auditable way out.
+
+name: ephemera
+
+services:
+  control-plane:
+    build:
+      context: .
+      args:
+        VERSION: ${VERSION:-dev}
+    image: ephemera/control-plane:${VERSION:-dev}
+    ports:
+      - "${EPHEMERA_PORT:-8080}:8080"
+    environment:
+      EPHEMERA_ADDR: ":8080"
+      EPHEMERA_DATA_DIR: "/data"
+      EPHEMERA_DRIVER: "docker"
+      EPHEMERA_WORKERS: "${EPHEMERA_WORKERS:-8}"
+      EPHEMERA_DOCKER_NETWORK: "ephemera_jobs"
+      EPHEMERA_EGRESS_PROXY: "http://egress-proxy:8888"
+      EPHEMERA_BASE_URL: "http://localhost:${EPHEMERA_PORT:-8080}"
+      # A stable key keeps artifact links valid across restarts. Generated per
+      # run if unset, which is fine locally and wrong in production.
+      EPHEMERA_SIGNING_KEY: "${EPHEMERA_SIGNING_KEY:-}"
+      # token=tenant pairs. Empty means no authentication, which the server
+      # warns about loudly at startup.
+      EPHEMERA_TOKENS: "${EPHEMERA_TOKENS:-}"
+      EPHEMERA_LOG_FORMAT: "${EPHEMERA_LOG_FORMAT:-text}"
+      EPHEMERA_MAX_ENV_LIFETIME: "${EPHEMERA_MAX_ENV_LIFETIME:-1h}"
+    volumes:
+      # The Docker socket is this container's entire authority, and it is a
+      # large one: access to the socket is equivalent to root on the host,
+      # because it can start a privileged container mounting /.
+      #
+      # It is here because the control plane's job is to create and destroy
+      # containers. The honest mitigations are read-only mounting (below), a
+      # distroless image with no shell, and — in any real deployment — a socket
+      # proxy that allows only the endpoints this driver actually calls.
+      # See docs/SECURITY.md.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ephemera-data:/data
+    networks:
+      - control
+      # Also on the jobs network so it can reach containers it creates.
+      - jobs
+    restart: unless-stopped
+    healthcheck:
+      # Distroless has no shell and no curl, so the check runs the CLI we ship.
+      test: ["CMD", "/usr/local/bin/ephemera", "stats", "--server", "http://localhost:8080"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  # Builds the agent image so `ephemera run --image ephemera/agent:dev` works
+  # immediately. It exits straight away; it exists to produce the image, not to
+  # run a service.
+  agent-image:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+      args:
+        VERSION: ${VERSION:-dev}
+    image: ephemera/agent:${VERSION:-dev}
+    command: ["--version"]
+    restart: "no"
+    networks:
+      - control
+
+  # The only route out of the jobs network.
+  #
+  # tinyproxy rather than squid: a much smaller configuration surface for a
+  # component whose entire job is to be an auditable chokepoint. Its config
+  # denies the RFC1918 and link-local ranges explicitly, so even if the network
+  # were made routable the metadata endpoint stays blocked — defence in depth
+  # rather than relying on the network mode alone.
+  egress-proxy:
+    image: vimagick/tinyproxy:latest
+    volumes:
+      - ./deploy/compose/tinyproxy.conf:/etc/tinyproxy/tinyproxy.conf:ro
+      - ./deploy/compose/filter:/etc/tinyproxy/filter:ro
+    networks:
+      - jobs    # reachable by job containers
+      - egress  # has internet access
+    restart: unless-stopped
+
+networks:
+  # Where the control plane serves its API.
+  control:
+    driver: bridge
+
+  # Job containers live here. `internal: true` removes the route to the outside
+  # world: this is the egress control, and it is structural.
+  jobs:
+    name: ephemera_jobs
+    driver: bridge
+    internal: true
+
+  # The proxy's route to the internet. No job container is ever attached here.
+  egress:
+    driver: bridge
+
+volumes:
+  ephemera-data:

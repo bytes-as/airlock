@@ -1,0 +1,43 @@
+# Agent image: what actually runs inside a job's container.
+#
+# The image is deliberately minimal. It is the blast radius of an agent
+# compromise, and every binary in it is a tool an attacker inherits. The
+# placeholder agent needs nothing but itself.
+#
+# To swap in a real computer-use agent (Playwright, a browser, a model client),
+# replace the runtime stage with an image carrying those dependencies. The
+# contract with the platform is entirely environmental and does not change:
+#
+#   EPHEMERA_JOB_ID        the job this run belongs to
+#   EPHEMERA_TENANT_ID     the tenant it belongs to
+#   EPHEMERA_ARTIFACT_DIR  where to write outputs (collected after exit)
+#   stdout / stderr        streamed live to viewers
+#   exit code              0 succeeded, non-zero failed
+#
+# Anything satisfying that contract is a valid agent.
+
+FROM golang:1.27-alpine AS build
+
+WORKDIR /src
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+ARG VERSION=dev
+RUN CGO_ENABLED=0 go build \
+        -trimpath \
+        -ldflags "-s -w -X main.version=${VERSION}" \
+        -o /out/ephemera-agent ./cmd/ephemera-agent
+
+FROM gcr.io/distroless/static-debian12:nonroot
+
+COPY --from=build /out/ephemera-agent /usr/local/bin/ephemera-agent
+
+# The driver runs containers as 65534:65534 with a read-only root filesystem
+# and all capabilities dropped, so the agent must not assume it can write
+# anywhere except EPHEMERA_ARTIFACT_DIR and /tmp, both of which are tmpfs.
+USER 65534:65534
+
+ENTRYPOINT ["/usr/local/bin/ephemera-agent"]

@@ -38,26 +38,29 @@ import (
 var version = "dev"
 
 type options struct {
-	addr          string
-	dataDir       string
-	driverName    string
-	workers       int
-	queueDepth    int
-	logFormat     string
-	logLevel      string
-	baseURL       string
-	signingKey    string
-	tokens        string
-	secretsDir    string
-	envPrefix     string
-	dockerHost    string
-	dockerNetwork string
-	egressProxy   string
-	pullPolicy    string
-	maxLifetime   time.Duration
-	deadline      time.Duration
-	maxDeadline   time.Duration
-	showVersion   bool
+	addr                   string
+	dataDir                string
+	driverName             string
+	workers                int
+	queueDepth             int
+	logFormat              string
+	logLevel               string
+	baseURL                string
+	signingKey             string
+	tokens                 string
+	secretsDir             string
+	envPrefix              string
+	dockerHost             string
+	dockerNetwork          string
+	egressProxy            string
+	pullPolicy             string
+	submitsPerSecond       float64
+	submitBurst            float64
+	maxConcurrentPerTenant int
+	maxLifetime            time.Duration
+	deadline               time.Duration
+	maxDeadline            time.Duration
+	showVersion            bool
 }
 
 func main() {
@@ -98,6 +101,9 @@ func parseFlags() options {
 	flag.StringVar(&o.dockerNetwork, "docker-network", envOr("EPHEMERA_DOCKER_NETWORK", ""), "internal docker network for job containers; required for proxied egress")
 	flag.StringVar(&o.egressProxy, "egress-proxy", envOr("EPHEMERA_EGRESS_PROXY", ""), "proxy URL injected into job containers on an internal network")
 	flag.StringVar(&o.pullPolicy, "pull-policy", envOr("EPHEMERA_PULL_POLICY", "if-missing"), "image pull policy: always, if-missing or never")
+	flag.Float64Var(&o.submitsPerSecond, "submits-per-second", 0, "per-tenant submission rate (0 uses the default)")
+	flag.Float64Var(&o.submitBurst, "submit-burst", 0, "per-tenant submission burst (0 uses the default)")
+	flag.IntVar(&o.maxConcurrentPerTenant, "max-concurrent-per-tenant", 0, "per-tenant concurrent job cap (0 uses the default)")
 	flag.BoolVar(&o.showVersion, "version", false, "print the version and exit")
 
 	flag.Usage = func() {
@@ -207,8 +213,23 @@ func run(opts options, log *slog.Logger) error {
 
 	broker := logstream.NewBroker()
 	limits := admission.DefaultLimits()
-	limits.MaxConcurrent = opts.workers
+	if opts.submitsPerSecond > 0 {
+		limits.SubmitsPerSecond = opts.submitsPerSecond
+		limits.Burst = opts.submitBurst
+	}
+	if opts.maxConcurrentPerTenant > 0 {
+		limits.MaxConcurrent = opts.maxConcurrentPerTenant
+	}
+	// Note the quota is NOT clamped to the worker count. They answer different
+	// questions: workers bound what this host runs at once, the quota bounds
+	// how much of that one tenant may take. Clamping them together would refuse
+	// a single tenant's queued work rather than simply queueing it.
 	ctrl := admission.New(limits, admission.WithGlobalCapacity(opts.queueDepth))
+	log.Info("admission limits",
+		"submits_per_second", limits.SubmitsPerSecond,
+		"burst", limits.Burst,
+		"max_concurrent_per_tenant", limits.MaxConcurrent,
+		"queue_capacity", opts.queueDepth)
 
 	resolver := secrets.NewChain(buildSecretSources(opts)...)
 

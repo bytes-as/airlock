@@ -83,8 +83,17 @@ type Limits struct {
 }
 
 // DefaultLimits are applied to tenants with no explicit configuration.
+//
+// Deliberately generous. These exist to stop abuse - a client stuck in a retry
+// loop, a runaway script - not to punish a caller for submitting a batch of
+// legitimate work. Set them too tight and the common case becomes a wall of
+// 429s while the workers sit idle, which trains clients to ignore backpressure
+// precisely when it starts to matter.
+//
+// The real limiter on parallelism is the scheduler's worker pool. The
+// concurrency quota below it exists so one tenant cannot take the whole pool.
 func DefaultLimits() Limits {
-	return Limits{SubmitsPerSecond: 10, Burst: 20, MaxConcurrent: 10}
+	return Limits{SubmitsPerSecond: 50, Burst: 100, MaxConcurrent: 25}
 }
 
 // Controller applies admission decisions across tenants.

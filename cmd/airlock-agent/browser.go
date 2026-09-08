@@ -22,8 +22,7 @@ import (
 // Why a fallback exists at all: the process driver runs the agent directly on
 // the host, and `make test` must stay fast and dependency-free. Requiring a
 // 400 MB browser to run the unit suite would be a bad trade. The container
-// image ships Chromium, so the path a reviewer actually exercises is the real
-// one.
+// image ships Chromium, so the path anyone actually runs is the real one.
 //
 // Chromium is driven through its command line rather than a CDP library. That
 // keeps the agent's dependency list at zero for this feature, and the two

@@ -3,10 +3,14 @@
 A control plane that runs untrusted work in disposable environments, then
 proves the environment is gone.
 
-Built for the Bravebird Platform & Infra take-home: provision an ephemeral
-environment, run a "computer use" agent in it, capture the output, destroy the
-environment. The agent is a placeholder, as the brief permits. Everything
-wrapping it is the submission.
+One job, one disposable environment: provision it, run an agent inside it,
+stream the output, collect the artifacts, and destroy it — with the destruction
+guaranteed by three independent layers rather than by remembering to call
+cleanup. The agent here is a placeholder that opens a "browser", searches and
+saves a screenshot; everything wrapping it is the system.
+
+The same core runs anything you would rather not run on your own machine:
+computer-use agents, untrusted user code, CI jobs, LLM tool sandboxes.
 
 ```mermaid
 flowchart TB
@@ -87,7 +91,7 @@ docker compose up --build -d
 ephemera run --image ephemera/agent:dev --query "distributed systems"
 ```
 
-**The brief's load question**, answered with numbers:
+**Behaviour under load**, answered with numbers rather than an assertion:
 
 ```bash
 make load-test          # 50 concurrent submissions
@@ -122,11 +126,10 @@ caller believes they have the control. That principle recurs throughout.
 
 ---
 
-## The deep-dives
+## The four hard parts
 
-The brief asks for two. There are four, and they are defensible together only
-because they are four properties of one job lifecycle rather than four
-subsystems: scheduling is what happens *between submit and dispatch*, egress is
+Four problems get real depth here, and they hang together only because they are
+four properties of one job lifecycle rather than four separate subsystems: scheduling is what happens *between submit and dispatch*, egress is
 how the environment is *created*, the flight recorder is what streams *out*, the
 reaper is what guarantees it *ends*.
 
@@ -291,7 +294,7 @@ on-demand — losing it mid-job stalls everything. Warm pools: not implemented.
 
 ### 5. Security and multi-tenancy (partial, claimed as such)
 
-Not chosen as a deep-dive, so only what the design gives for free is claimed.
+Not one of the four, so only what the design gives for free is claimed here.
 
 Secrets: job specs carry **references**, never values. Values are resolved at
 dispatch, held in memory for one `Start` call, and stored nowhere — not in the
@@ -309,8 +312,8 @@ the container cannot be collected after the job — or after a crash, which is
 when it is most worth having. It is removed on `Destroy` alongside the
 container.
 
-**Honestly**: containers share a kernel. This is not the "total memory isolation"
-the brief mentions — that needs a hypervisor boundary. Fargate provides one;
+**Honestly**: containers share a kernel. This is not total memory isolation
+between tenants — that needs a hypervisor boundary. Fargate provides one;
 gVisor or Firecracker would too.
 
 ---
@@ -352,7 +355,7 @@ stateDiagram-v2
     end note
 ```
 
-A named grading axis, so it gets a taxonomy rather than a bool. The kind decides
+Failure gets a taxonomy rather than a bool, because the kind decides
 **retryability** and **fault attribution**:
 
 | Kind | Fault | Retried | Meaning |
@@ -385,11 +388,11 @@ rather than racing the one that took over.
 ## Why this stack
 
 **Go** — single static binary into a distroless image, concurrency primitives
-that make the scheduling deep-dive natural to write *and* to explain, no runtime
-to install in the container.
+that make the scheduling work natural to write *and* to explain, no runtime to
+install in the container.
 
-**bbolt, not Redis or SQS** — a library, not a service. The reviewer runs one
-command with nothing else installed. ACID transactions are the one property a
+**bbolt, not Redis or SQS** — a library, not a service. It runs with one command
+and nothing else installed. ACID transactions are the one property a
 job queue cannot do without. The cost is stated below.
 
 **SSE, not WebSocket** — the traffic is one-way. Plain HTTP, no upgrade
@@ -419,14 +422,14 @@ deliberate choice; the same fact unstated is a gap nobody noticed.
 **Honest limits at this scale:** single control-plane process, no HA. Container
 isolation, not VM isolation. And *50 concurrent* is a **scheduling** claim proved
 with a fast agent — no single laptop runs 50 concurrent browsers, and claiming
-otherwise would not survive an interview.
+otherwise would not survive contact with a real workload.
 
 ---
 
 ## What has actually been verified
 
-The brief judges operational mindset, and overstating verification is the fastest
-way to lose a reviewer's trust. So, plainly:
+Overstating verification is the fastest way to make every other claim in a
+README worthless. So, plainly:
 
 | | Status |
 |---|---|

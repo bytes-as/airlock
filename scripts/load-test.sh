@@ -2,8 +2,8 @@
 #
 # Submit N jobs concurrently and report what the system did with them.
 #
-# The brief asks "how does the system handle 50 simultaneous job requests?".
-# This answers it with numbers rather than an assertion, and it deliberately
+# Answers "how does this handle N simultaneous job requests?" with numbers
+# rather than an assertion, and it deliberately
 # reports refusals as a *success* of the design: a system that refuses work it
 # cannot start, and says when to come back, is behaving correctly. A system
 # that accepts all 50 and silently drops some is the failure mode.

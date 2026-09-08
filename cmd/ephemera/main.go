@@ -1,8 +1,7 @@
 // Command ephemera is the command-line client for the control plane.
 //
-// It exists because the brief asks for "an API or CLI that takes a task input",
-// and because a reviewer with ten minutes should be able to run one command and
-// watch a job happen rather than assemble curl invocations from a README.
+// It exists because someone with ten minutes should be able to run one command
+// and watch a job happen, rather than assemble curl invocations from a README.
 //
 // The default `run` command does the whole loop — submit, stream logs, wait,
 // then report artifacts — because that is what someone actually wants to do.

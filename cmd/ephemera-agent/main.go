@@ -1,10 +1,9 @@
 // Command ephemera-agent is the placeholder "computer use" agent.
 //
-// The brief is explicit that the agent is not what is being evaluated — a
-// simple script that opens a browser, searches and saves a screenshot is
-// sufficient, and the infrastructure wrapping it is the point. So this is
-// deliberately a stand-in, but a stand-in that behaves like the real thing in
-// every way the platform cares about:
+// The agent is not the interesting part of this system; the infrastructure
+// wrapping it is. So this is deliberately a stand-in - it opens a "browser",
+// searches, and saves a screenshot - but a stand-in that behaves like the real
+// thing in every way the platform cares about:
 //
 //   - It reads its task from the environment the platform injected.
 //   - It streams progress to stdout as it works, so log streaming has something

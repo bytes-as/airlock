@@ -55,7 +55,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "artifacts" {
 
     filter {}
 
-    # Deep-dive 4. Screenshots and video are the bulk of the bytes and stop
+    # Cost control. Screenshots and video are the bulk of the bytes and stop
     # being useful quickly, so retention is enforced by the platform rather than
     # left to whoever remembers to clean up.
     expiration {

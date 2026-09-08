@@ -435,9 +435,9 @@ func TestListFilters(t *testing.T) {
 	}
 }
 
-// TestConcurrentClaimsNeverDuplicate is the property that matters under the
-// brief's 50-simultaneous-jobs requirement: many workers racing on one queue
-// must each get a distinct job, and every job must go to exactly one worker.
+// TestConcurrentClaimsNeverDuplicate is the property that matters under load:
+// many workers racing on one queue must each get a distinct job, and every job
+// must go to exactly one worker.
 func TestConcurrentClaimsNeverDuplicate(t *testing.T) {
 	q, _ := newQueue(t)
 	ctx := context.Background()

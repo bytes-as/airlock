@@ -1,8 +1,8 @@
 # Network layout, and the egress story in AWS terms.
 #
-# Deep-dive 1 asks: how does the agent get internet access without reaching your
-# internal AWS metadata or other VPC resources? On Fargate the honest answer has
-# three parts, and only one of them is a firewall rule.
+# The question this file answers: how does the agent get internet access without
+# reaching instance metadata or other VPC resources? On Fargate the honest answer
+# has three parts, and only one of them is a firewall rule.
 #
 # 1. Job tasks run in private subnets. They have no public IP and no inbound
 #    route from the internet; outbound goes through a NAT gateway.

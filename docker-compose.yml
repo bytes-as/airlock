@@ -66,8 +66,8 @@ services:
       # host". Mirroring the path makes the two views identical, so a path this
       # container writes is a path the daemon can mount.
       #
-      # It also means artifacts land in ./data on the host, where a reviewer can
-      # just look at them.
+      # It also means artifacts land in ./data on the host, where you can just
+      # look at them.
       - ${PWD}/data:${PWD}/data
     # The image runs as uid 65532, but the Docker socket is mode 0660 owned by
     # root and a group. Without membership of that group the control plane

@@ -61,10 +61,11 @@ must never be used to make an error go away.
 
 ## Why Compose is not the IaC deliverable
 
-The brief asks: *can I spin this up with one command (Terraform/CDK/Pulumi)?*
+The question that matters is: *can this be spun up in a fresh account with one
+command?*
 
 `docker-compose.yml` is declarative, checked in, and code. It is not IaC in the
-sense being graded:
+sense that question means:
 
 | | Compose | Terraform |
 |---|---|---|

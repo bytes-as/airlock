@@ -50,7 +50,7 @@ output "max_job_lifetime_minutes" {
 
 # A deliberately blunt summary of what this configuration has and has not been
 # through, printed on every apply. Overstating verification is the fastest way
-# to lose a reviewer's trust, so the code says it out loud.
+# to lose trust in everything else a system claims, so the code says it out loud.
 output "verification_status" {
   description = "What has actually been verified about this configuration."
   value       = <<-EOT

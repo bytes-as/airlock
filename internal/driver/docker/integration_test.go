@@ -209,8 +209,8 @@ func TestIntegrationOOMIsDistinctFromACrash(t *testing.T) {
 	t.Logf("status: exit=%d oom=%v reason=%q", status.ExitCode, status.OOMKilled, status.Reason)
 }
 
-// TestIntegrationNoNetworkMeansNoNetwork is deep-dive 1's strongest claim:
-// with NetworkNone there is no interface at all.
+// TestIntegrationNoNetworkMeansNoNetwork is the strongest egress claim this
+// driver makes: with NetworkNone there is no interface at all.
 func TestIntegrationNoNetworkMeansNoNetwork(t *testing.T) {
 	d := newTestDriver(t, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)

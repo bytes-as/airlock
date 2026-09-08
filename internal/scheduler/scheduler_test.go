@@ -26,8 +26,8 @@ import (
 
 // These are integration tests. Nothing is mocked: a real bbolt queue, the real
 // process driver, real child processes, a real artifact store on disk. The only
-// thing standing in for production is the agent itself, which the brief
-// explicitly says may be a placeholder.
+// thing standing in for production is the agent itself, which is deliberately
+// a placeholder.
 
 // TestHelperProcess is the agent. It exits before the test framework prints, so
 // the driver sees only what the "agent" deliberately produced.
@@ -232,8 +232,8 @@ func (h *harness) awaitTerminal(jobID string, within time.Duration) *job.Job {
 	return nil
 }
 
-// TestEndToEndSuccess is the core objective from the brief: accept a job,
-// provision an environment, run the agent, capture output, destroy it.
+// TestEndToEndSuccess is the whole point of the system: accept a job, provision
+// an environment, run the agent, capture output, destroy it.
 func TestEndToEndSuccess(t *testing.T) {
 	h := newHarness(t, testConfig())
 	h.start()
@@ -457,8 +457,8 @@ func TestDeadlineIsClampedToMaximum(t *testing.T) {
 	}
 }
 
-// TestFiftyConcurrentJobs is the brief's explicit load question. It asserts two
-// things: everything completes, and worker concurrency is genuinely bounded.
+// TestFiftyConcurrentJobs is the load question. It asserts two things:
+// everything completes, and worker concurrency is genuinely bounded.
 func TestFiftyConcurrentJobs(t *testing.T) {
 	cfg := testConfig()
 	cfg.Workers = 6

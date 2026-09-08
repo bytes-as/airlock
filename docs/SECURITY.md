@@ -77,9 +77,9 @@ directory, so a symlink in it is attacker-controlled, and following one would
 turn "collect the screenshots" into an arbitrary host file read.
 
 **What this is not.** Containers share a kernel. A kernel exploit crosses the
-boundary. The brief mentions "total filesystem and memory isolation" — that
-requires a hypervisor boundary, which Fargate provides per task and which gVisor
-or Firecracker would provide on self-managed hosts. The Docker driver does not
+boundary. Total filesystem and memory isolation between tenants requires a
+hypervisor boundary, which Fargate provides per task and which gVisor or
+Firecracker would provide on self-managed hosts. The Docker driver does not
 provide it and does not claim to.
 
 ## 4. Secrets

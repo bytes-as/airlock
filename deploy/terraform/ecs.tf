@@ -14,7 +14,7 @@ resource "aws_ecs_cluster" "main" {
 
 # Capacity providers: Spot for jobs, on-demand for the control plane.
 #
-# Deep-dive 4's bonus. Spot is roughly 70 percent cheaper and can be reclaimed
+# Spot is roughly 70 percent cheaper and can be reclaimed
 # with two minutes' notice. Job tasks tolerate that well - they are short, and
 # the failure taxonomy already classifies an interrupted job as retryable
 # infrastructure failure rather than an agent bug. The control plane does not

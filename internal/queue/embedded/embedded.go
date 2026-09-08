@@ -1,8 +1,8 @@
 // Package embedded implements queue.Queue on top of bbolt, a pure-Go embedded
 // key/value store.
 //
-// Why embedded: the reviewer of this system should be able to run it with one
-// command and no other services. Redis or SQS would each add a dependency to
+// Why embedded: this system should be runnable with one command and no other
+// services. Redis or SQS would each add a dependency to
 // install and operate, in exchange for capabilities we do not need at this
 // scale. bbolt is a library, not a service — it cross-compiles anywhere, needs
 // no cgo, and gives us ACID transactions, which is the one property a job queue

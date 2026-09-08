@@ -177,8 +177,8 @@ jobs:
       - name: build
         run: make build
 
-      # The brief's headline question, answered on every push with numbers
-      # rather than an assertion.
+      # The load question, answered on every push with numbers rather than an
+      # assertion.
       - name: 50 concurrent jobs
         run: |
           ./bin/ephemerad --data-dir ./data --addr 127.0.0.1:8080 --workers 6 &

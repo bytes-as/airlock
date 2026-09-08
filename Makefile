@@ -1,7 +1,7 @@
 # ephemera - build, test and run
 #
-# Every target here is also a line in the README, so a reviewer can run what
-# they read. `make help` lists them.
+# Every target here is also a line in the README, so anyone can run what they
+# read. `make help` lists them, and docs/RUNBOOK.md explains each one.
 
 SHELL := /bin/bash
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
